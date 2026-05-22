@@ -182,5 +182,72 @@ const Acceleration = {
             }
         }
         return data;
+    },
+
+    // ─── 가속 모델 파라미터 학술 및 규격 레퍼런스 데이터 ───
+    // Ref: JEDEC, IEC, IPC, MIL-HDBK 등 국제 규격 및 주요 대표 논문 근거
+    REFERENCE_DATA: {
+        arrhenius: {
+            title: "Arrhenius (온도) 모델 레퍼런스 & 검증",
+            modelName: "Arrhenius (온도)",
+            parameters: [
+                { symbol: "Ea", name: "활성화 에너지 (Activation Energy)", range: "0.3 ~ 1.5 eV", target: "반도체 SiD, 절연막 파괴, 솔더 접합", source: "JEDEC JESD22-A108 / JESD91A", details: "JEDEC 규격 기준 일반 반도체 마모 열화는 0.7 eV, 솔더 접합부 크리프는 0.5~0.8 eV 권장." }
+            ],
+            verification: {
+                source: "JEDEC JESD22-A108D (Temperature bias stress life test)",
+                scenario: "사용 온도 55°C, 가속 시험 온도 125°C, 활성화 에너지 Ea = 0.7 eV 조건",
+                inputs: { useTemp: 55, stressTemp: 125, ea: 0.7 },
+                targetVal: 77.65,
+                formula: "AF = \\exp\\left( \\frac{0.7}{8.6173 \\times 10^{-5}} \\left( \\frac{1}{328.15} - \\frac{1}{398.15} \\right) \\right)",
+                setInputsFunc: "applyVerificationInputs('arrhenius', { 'acc-t-use': 55, 'acc-t-stress': 125, 'acc-ea': 0.7 })"
+            }
+        },
+        peck: {
+            title: "Peck (온도+습도) 모델 레퍼런스 & 검증",
+            modelName: "Peck (온도+습도)",
+            parameters: [
+                { symbol: "Ea", name: "활성화 에너지 (Activation Energy)", range: "0.7 ~ 0.9 eV", target: "에폭시 패키지 부식, HAST", source: "JEDEC JESD22-A110 (HAST)", details: "부식 메커니즘 시험의 경우 Ea = 0.9 eV 가 일반적으로 쓰임." },
+                { symbol: "n", name: "습도 가속 지수 (Humidity Exponent)", range: "2.7 ~ 3.0", target: "에폭시 패키지 부식, 수분 침투", source: "Peck (1986) 'Crucial Role of Humidity...'", details: "Peck의 오리지널 실험 논문 및 JEDEC HAST 규격에선 습도 가속 지수로 n = 3.0을 표준 권장." }
+            ],
+            verification: {
+                source: "Peck, D. S. (1986) IEEE IRPS 논문 검증 사례",
+                scenario: "사용 30°C / 60%RH, 스트레스 85°C / 85%RH, Ea = 0.9 eV, 습도지수 n = 3.0",
+                inputs: { useTemp: 30, useRh: 60, stressTemp: 85, stressRh: 85, ea: 0.9, n: 3.0 },
+                targetVal: 564.57,
+                formula: "AF = \\left(\\frac{85}{60}\\right)^{3} \\cdot \\exp\\left( \\frac{0.9}{k} \\left( \\frac{1}{303.15} - \\frac{1}{358.15} \\right) \\right)",
+                setInputsFunc: "applyVerificationInputs('peck', { 'acc-t-use': 30, 'acc-t-stress': 85, 'acc-ea': 0.9, 'acc-rh-use': 60, 'acc-rh-stress': 85, 'acc-n-peck': 3.0 })"
+            }
+        },
+        coffin_manson: {
+            title: "Coffin-Manson (열 사이클) 모델 레퍼런스 & 검증",
+            modelName: "Coffin-Manson (열사이클)",
+            parameters: [
+                { symbol: "m", name: "코핀-맨슨 지수 (Fatigue Exponent)", range: "1.9 ~ 2.5", target: "솔더 조인트 피로, 금속 배선 피로", source: "IPC-9701A / Coffin (1954)", details: "SnPb 솔더 접합부는 m = 1.9, SAC305 무납 솔더는 m = 2.2~2.5, 알루미늄 와이어는 m = 3.5~4.0 권장." }
+            ],
+            verification: {
+                source: "IPC-9701A (Performance Test Methods for Solder Attachments)",
+                scenario: "사용 온도 폭 ΔTu = 20°C, 시험 온도 폭 ΔTs = 100°C, 피로지수 m = 1.9 조건",
+                inputs: { dtUse: 20, dtStress: 100, m: 1.9 },
+                targetVal: 21.27,
+                formula: "AF = \\left(\\frac{100}{20}\\right)^{1.9}",
+                setInputsFunc: "applyVerificationInputs('coffin_manson', { 'acc-dt-use': 20, 'acc-dt-stress': 100, 'acc-m': 1.9 })"
+            }
+        },
+        inverse_power: {
+            title: "Inverse Power Law (전압/전류) 모델 레퍼런스 & 검증",
+            modelName: "Inverse Power Law",
+            parameters: [
+                { symbol: "n", name: "스트레스 가속 지수 (Voltage/Stress Exponent)", range: "5.0 ~ 8.0 (전압) / 1.0 ~ 2.0 (전류)", target: "커패시터 유전체 파괴, Black EM", source: "JEDEC JESD92 (TDDB) / JESD63 (EM)", details: "전압 TDDB 고장 시 n = 7.0 수준으로 매우 큰 가속성이 나타나며, Black 공식의 전류 밀도 지수는 n = 1.0~2.0." }
+            ],
+            verification: {
+                source: "JEDEC JESD92 (TDDB Characterization Standard)",
+                scenario: "사용 전압 Vu = 3.3V, 시험 가속 전압 Vs = 5.0V, 전압 가속지수 n = 7.0 조건",
+                inputs: { vUse: 3.3, vStress: 5.0, n: 7.0 },
+                targetVal: 18.26,
+                formula: "AF = \\left(\\frac{5.0}{3.3}\\right)^7",
+                setInputsFunc: "applyVerificationInputs('inverse_power', { 'acc-v-use': 3.3, 'acc-v-stress': 5.0, 'acc-n-power': 7.0 })"
+            }
+        }
     }
 };
+

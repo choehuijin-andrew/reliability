@@ -43,16 +43,20 @@ const SamplePlanning = {
         const beta = betaPercent / 100;
 
         if (allowedFailures === 0) {
-            // 간편 공식: n = ceil[ χ²(β, 2) / (2p) ]
-            const chi2Val = jStat.chisquare.inv(1 - beta, 2);
-            return Math.ceil(chi2Val / (2 * p));
+            // 이항분포 Exact 공식 (c=0): n = ceil[ ln(beta) / ln(1-p) ]
+            return Math.ceil(Math.log(beta) / Math.log(1 - p));
         }
 
-        // 일반 공식: χ² 기반
-        // n = ceil[ χ²(β, 2(c+1)) / (2p) ]
-        const df = 2 * (allowedFailures + 1);
-        const chi2Val = jStat.chisquare.inv(1 - beta, df);
-        return Math.ceil(chi2Val / (2 * p));
+        // 이항분포 Exact 공식 (c>0): P(X <= c | p) <= beta를 만족하는 최소 n 탐색
+        let n = allowedFailures + 1;
+        while (n < CONSTANTS.MAX_SAMPLE_SEARCH) {
+            const probPass = jStat.binomial.cdf(allowedFailures, n, p);
+            if (probPass <= beta) {
+                return n;
+            }
+            n++;
+        }
+        return -1; // 수렴 실패
     },
 
     // ─── AQL 기반 시료수 (생산자 위험 관점) ───
@@ -99,35 +103,40 @@ const SamplePlanning = {
     getLTPDFormula(ltpdPercent, betaPercent, allowedFailures, result) {
         const p = ltpdPercent / 100;
         const beta = betaPercent / 100;
-        const df = 2 * (allowedFailures + 1);
-        const chi2Val = jStat.chisquare.inv(1 - beta, df);
 
         let steps = '';
 
-        // 메인 공식
-        steps += FormulaRenderer.step('계산 공식 및 과정',
-            `n = \\left\\lceil \\frac{\\chi^2(\\beta, 2(c+1))}{2p} \\right\\rceil`
-        );
+        if (allowedFailures === 0) {
+            steps += FormulaRenderer.step('LTPD 계산 공식 (c=0, 이항분포 Exact)',
+                `n = \\left\\lceil \\frac{\\ln(\\beta)}{\\ln(1-p)} \\right\\rceil`
+            );
+            steps += FormulaRenderer.step('',
+                `p(\\text{허용불량률}) = ${ltpdPercent}\\% = ${p.toFixed(4)}`
+            );
+            steps += FormulaRenderer.step('',
+                `\\beta(\\text{소비자위험도}) = ${betaPercent}\\% = ${beta.toFixed(3)}`
+            );
+            steps += FormulaRenderer.step('',
+                `n = \\left\\lceil \\frac{\\ln(${beta.toFixed(3)})}{\\ln(${(1-p).toFixed(4)})} \\right\\rceil = \\left\\lceil \\frac{${Math.log(beta).toFixed(4)}}{${Math.log(1-p).toFixed(6)}} \\right\\rceil = ${result}`
+            );
+        } else {
+            steps += FormulaRenderer.step('LTPD 계산 공식 (c>0, 이항분포 Exact)',
+                `\\sum_{k=0}^{c} \\binom{n}{k} p^k (1-p)^{n-k} \\le \\beta`
+            );
+            steps += FormulaRenderer.step('',
+                `p = ${p.toFixed(4)}, \\quad \\beta = ${beta.toFixed(3)}, \\quad c = ${allowedFailures}`
+            );
+            steps += FormulaRenderer.step('',
+                `\\text{이항 CDF 탐색 결과: } n = ${result}`
+            );
+        }
 
-        // 파라미터 대입
-        steps += FormulaRenderer.step('',
-            `p(\\text{허용불량률}) = ${ltpdPercent}\\% = ${p.toFixed(4)}`
-        );
-        steps += FormulaRenderer.step('',
-            `\\beta(\\text{소비자위험도}) = ${betaPercent}\\% = ${beta.toFixed(3)}`
-        );
-        steps += FormulaRenderer.step('',
-            `c(\\text{허용고장수}) = ${allowedFailures}`
-        );
-
-        // χ² 값
-        steps += FormulaRenderer.step('',
-            `\\chi^2(\\beta, 2(c+1)) = \\chi^2(${beta.toFixed(3)},\\, ${df}) = ${chi2Val.toFixed(3)}`
-        );
-
-        // 최종 계산
-        steps += FormulaRenderer.step('',
-            `n = \\left\\lceil \\frac{${chi2Val.toFixed(3)}}{2 \\times ${p.toFixed(4)}} \\right\\rceil = \\left\\lceil \\frac{${chi2Val.toFixed(3)}}{${(2*p).toFixed(4)}} \\right\\rceil = ${result}`
+        // 참고용 포아송 근사치 추가
+        const df = 2 * (allowedFailures + 1);
+        const chi2Val = jStat.chisquare.inv(1 - beta, df);
+        const nPoisson = Math.ceil(chi2Val / (2 * p));
+        steps += FormulaRenderer.step('참고: 포아송 근사 공식',
+            `n_{\\text{Poisson}} = \\left\\lceil \\frac{\\chi^2(1-\\beta,\\, 2(c+1))}{2p} \\right\\rceil = \\left\\lceil \\frac{${chi2Val.toFixed(3)}}{2 \\times ${p.toFixed(4)}} \\right\\rceil = ${nPoisson}`
         );
 
         return steps;
@@ -236,10 +245,18 @@ const SamplePlanning = {
     // 총 시험시간: T_total ≥ χ²(C, 2(c+1)) / (2 * λ_target)
     // 시료수: n = ceil[ T_total / t_test ]
     calculateLTFR(targetFR, testTime, confidence, allowedFailures, frUnit) {
-        // frUnit: 'FIT' (10⁻⁹/h) or 'perHour' (/h)
+        // frUnit:
+        // 'pct1kh' : % / 1,000h (기본값) -> λ = FR / 100,000
+        // 'pct1h'  : % / h       -> λ = FR / 100
+        // 'FIT'    : FIT (10⁻⁹/h) -> λ = FR * 10⁻⁹
+        // 'perHour': /h         -> λ = FR
         let lambda = targetFR;
-        if (frUnit === 'FIT') {
-            lambda = targetFR * 1e-9; // FIT → /h 변환
+        if (frUnit === 'pct1kh') {
+            lambda = targetFR * 1e-5;
+        } else if (frUnit === 'pct1h') {
+            lambda = targetFR * 0.01;
+        } else if (frUnit === 'FIT') {
+            lambda = targetFR * 1e-9;
         }
         const df = 2 * (allowedFailures + 1);
         const chi2Val = jStat.chisquare.inv(confidence, df);
@@ -250,7 +267,16 @@ const SamplePlanning = {
 
     // LTFR 수식 생성
     getLTFRFormula(targetFR, testTime, confidence, allowedFailures, frUnit, result) {
-        const frLabel = frUnit === 'FIT' ? `${targetFR} \\text{ FIT} = ${result.lambda.toExponential(4)} \\text{ /h}` : `${targetFR} \\text{ /h}`;
+        let frLabel = '';
+        if (frUnit === 'pct1kh') {
+            frLabel = `${targetFR}\\% \\text{ /1,000h} = ${result.lambda.toExponential(4)} \\text{ /h}`;
+        } else if (frUnit === 'pct1h') {
+            frLabel = `${targetFR}\\% \\text{ /h} = ${result.lambda.toExponential(4)} \\text{ /h}`;
+        } else if (frUnit === 'FIT') {
+            frLabel = `${targetFR} \\text{ FIT} = ${result.lambda.toExponential(4)} \\text{ /h}`;
+        } else {
+            frLabel = `${targetFR} \\text{ /h}`;
+        }
         let steps = '';
 
         steps += FormulaRenderer.step('LTFR 계산 공식',

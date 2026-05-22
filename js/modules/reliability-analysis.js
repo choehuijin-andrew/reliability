@@ -227,18 +227,16 @@ const ReliabilityAnalysis = (() => {
     let fisherCI = null, contourData = null;
     if (failures.length >= MIN_SAMPLE) {
       fisherCI = Statistics.computeFisherCI(failures, censored, selectedFit.dist, selectedFit.params, confidence);
-      // Contour Plot은 Weibull이면서 샘플 5개 이상일 때만
-      // Contour Plot은 Weibull/Lognormal/Normal이면서 샘플 5개 이상일 때
-      if (['weibull', 'lognormal', 'normal'].includes(selectedFit.dist) && failures.length >= 5) {
-        let p1, p2;
-        if (selectedFit.dist === 'weibull') {
-          p1 = selectedFit.params.alpha;
-          p2 = selectedFit.params.beta;
-        } else {
-          p1 = selectedFit.params.mu;
-          p2 = selectedFit.params.sigma;
+      // Contour Plot — 항상 Weibull 기준 (Weibull++ 방식)
+      // 다른 분포를 선택해도 Contour는 Weibull 파라미터 공간에서 표시
+      if (failures.length >= 5) {
+        // Weibull 적합 결과 찾기 (이미 fits에 계산되어 있음)
+        const wFit = fits.find(f => f.dist === 'weibull');
+        if (wFit) {
+          contourData = Statistics.computeContourPlot(
+            failures, censored, wFit.params.alpha, wFit.params.beta, confidence, 'weibull'
+          );
         }
-        contourData = Statistics.computeContourPlot(failures, censored, p1, p2, confidence, selectedFit.dist);
       }
     }
 
