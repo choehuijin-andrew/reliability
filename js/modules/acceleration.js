@@ -99,15 +99,16 @@ const Acceleration = {
             // 2. 필요 시험 시간
             const etaUseReq = targetLife / Math.pow(-Math.log(1 - bxFraction), 1 / beta);
             const tTest = (1 / af) * Math.pow((chi2 * Math.pow(etaUseReq, beta)) / (2 * Math.max(n, 1)), 1 / beta);
+            const tTestFinal = Math.max(1, Math.round(tTest));
 
             steps += FormulaRenderer.step('2. 필요 시험 시간(t_{test}) 계산',
-                `t_{test} = \\frac{1}{AF} \\left( \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2n} \\right)^{1/\\beta} = \\frac{1}{${af.toFixed(2)}} \\left( \\frac{${chi2.toFixed(3)} \\cdot ${Math.round(etaUseReq)}^${beta}}{2 \\cdot ${n}} \\right)^{1/${beta}} = ${Math.round(tTest)}`
+                `t_{test} = \\frac{1}{AF} \\left( \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2n} \\right)^{1/\\beta} = \\frac{1}{${af.toFixed(2)}} \\left( \\frac{${chi2.toFixed(3)} \\cdot ${Math.round(etaUseReq)}^${beta}}{2 \\cdot ${n}} \\right)^{1/${beta}} = ${tTestFinal}`
             );
 
             // 3. 척도모수
-            const etaUse = Math.pow((2 * Math.pow(tTest * af, beta) * Math.max(n, 1)) / chi2, 1 / beta);
+            const etaUse = Math.pow((2 * Math.pow(tTestFinal * af, beta) * Math.max(n, 1)) / chi2, 1 / beta);
             steps += FormulaRenderer.step('3. 최종 척도모수(\\eta_{use}) 계산',
-                `\\eta_{use} = \\left( \\frac{2 n \\cdot (t_{test} \\cdot AF)^{\\beta}}{\\chi^2} \\right)^{1/\\beta} = ${Math.round(etaUse)}`
+                `\\eta_{use} = \\left( \\frac{2 n \\cdot (t_{test} \\cdot AF)^{\\beta}}{\\chi^2} \\right)^{1/\\beta} = \\left( \\frac{2 \\cdot ${n} \\cdot (${tTestFinal} \\cdot ${af.toFixed(2)})^${beta}}{${chi2.toFixed(3)}} \\right)^{1/${beta}} = ${Math.round(etaUse)}`
             );
 
             // 4. 보증 수명

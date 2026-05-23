@@ -339,6 +339,7 @@ const ReliabilityAnalysis = (() => {
       distribution: selectedFit.dist,
       params: selectedFit.params,
       mttf: selectedFit.mttf,
+      mttfF: selectedFit.cdfFn(selectedFit.mttf),
       bxLife,
       betaInterpretation,
       // 비교 테이블

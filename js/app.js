@@ -4,6 +4,15 @@
  */
 
 let currentTab = 'planning'; // 시료수 계획부터 시작
+let accelerationState = {
+    beta: 2,
+    targetLife: 20000,
+    n: 22,
+    confidence: 90,
+    bx: 1,
+    testTime: 1000
+};
+
 
 // ═══════════════════════════════════════════
 // 탭 전환
@@ -12,7 +21,7 @@ function switchTab(tabId) {
     currentTab = tabId;
 
     // 탭 버튼 활성화
-    document.querySelectorAll('.tab-btn, .nav-item').forEach(btn => {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
     });
 
@@ -551,14 +560,26 @@ function renderAnalysisSummary(r, extraHeaderHtml = '') {
         return _compSortAsc ? va - vb : vb - va;
     });
 
+    // 선택된 기준 지표(_compSortKey)에 따른 최적 분포 판단 (해당 지표값 기준 최소값 검색)
+    const bestDistObj = [...r.comparison].sort((a, b) => {
+        const va = a[_compSortKey] ?? Infinity;
+        const vb = b[_compSortKey] ?? Infinity;
+        return va - vb;
+    })[0];
+    const bestDist = bestDistObj ? bestDistObj.dist : (r.comparison.find(c => c.best)?.dist || 'weibull');
+
+    const metricLabel = { aic_c: 'AICc', bic: 'BIC', ad: 'AD 수정값', minus2ll: '-2LL' };
+    const curMetric = metricLabel[_compSortKey] || 'AICc';
+
     const selectedDist = r.distribution;
     const compHtml = sortedComp.map(c => {
         const isSelected = c.dist === selectedDist;
+        const isBest = c.dist === bestDist;
         return `
-        <tr onclick="selectCompDist('${c.dist}')" style="cursor:pointer;${isSelected ? 'background:rgba(56,189,248,0.15)' : c.best ? 'background:rgba(56,189,248,0.04)' : ''}" title="클릭하면 이 분포로 차트 표시">
+        <tr onclick="selectCompDist('${c.dist}')" style="cursor:pointer;${isSelected ? 'background:rgba(56,189,248,0.15)' : isBest ? 'background:rgba(56,189,248,0.04)' : ''}" title="클릭하면 이 분포로 차트 표시">
             <td class="table-cell" style="${isSelected ? 'color:var(--accent-color);font-weight:700' : ''}">
                 ${distLabel[c.dist] || c.dist}
-                ${c.best ? '<span style="color:#f59e0b"> ⭐</span>' : ''}
+                ${isBest ? '<span style="color:#f59e0b"> ⭐</span>' : ''}
                 ${isSelected ? '<span style="font-size:0.7rem;margin-left:4px;color:var(--accent-color)">[선택중]</span>' : ''}
             </td>
             <td class="table-cell">${c.aic_c != null ? c.aic_c.toFixed(2) : 'N/A'}</td>
@@ -582,8 +603,8 @@ function renderAnalysisSummary(r, extraHeaderHtml = '') {
 
         <div class="grid-4" style="margin-bottom:1.25rem">
             <div class="stat-card">
-                <div class="label">최적 분포 (AICc)</div>
-                <div class="value accent" style="font-size:0.95rem">${distLabel[r.distribution] || r.distribution}</div>
+                <div class="label">최적 분포 (${curMetric})</div>
+                <div class="value accent" style="font-size:0.95rem">${distLabel[bestDist] || bestDist}</div>
             </div>
             <div class="stat-card">
                 <div class="label">선택 분포</div>
@@ -591,7 +612,10 @@ function renderAnalysisSummary(r, extraHeaderHtml = '') {
             </div>
             <div class="stat-card">
                 <div class="label">MTTF</div>
-                <div class="value success">${r.mttf.toFixed(1)}</div>
+                <div class="value success" style="display:flex;flex-direction:column;align-items:center;line-height:1.2">
+                    <span>${r.mttf.toFixed(1)}</span>
+                    ${r.mttfF !== undefined ? `<span style="font-size:0.72rem;color:var(--text-secondary);font-weight:400;margin-top:2px">F(t) = ${(r.mttfF * 100).toFixed(1)}%</span>` : ''}
+                </div>
             </div>
             <div class="stat-card">
                 <div class="label">데이터</div>
@@ -2396,10 +2420,10 @@ function renderAccelerationTab() {
             ${HelpTooltip.labelWithHelp('가속 모델', '스트레스 유형에 따른 가속 모델 선택')}
             <select id="acc-model" onchange="updateAccModelInputs()">
                 <option value="arrhenius" selected>Arrhenius (온도)</option>
-                <option value="eyring">Eyring (온도 + 비열 스트레스)</option>
+                <option value="eyring" style="display:none">Eyring (온도 + 비열 스트레스)</option>
                 <option value="peck">Peck (온도 + 습도)</option>
                 <option value="coffin_manson">Coffin-Manson (열 사이클)</option>
-                <option value="norris_landzberg">Norris-Landzberg (열 사이클 확장)</option>
+                <option value="norris_landzberg" style="display:none">Norris-Landzberg (열 사이클 확장)</option>
                 <option value="inverse_power">Inverse Power Law (전압/전류)</option>
                 <option value="arrhenius_power">복합: Arrhenius × Inverse Power</option>
             </select>
@@ -2474,42 +2498,52 @@ function renderArrheniusInputs() {
 }
 
 function renderAccTestInputs() {
+    const beta   = accelerationState.beta;
+    const tLife  = accelerationState.targetLife;
+    const nVal   = accelerationState.n;
+    const conf   = accelerationState.confidence;
+    const bxVal  = accelerationState.bx;
+
+    const HT = HelpTooltip;
     return `
         <div class="grid-2">
             <div>
-                ${HelpTooltip.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β<1: 초기고장<br>β≈1: 우발고장<br>β>1: 마모고장')}
-                <input type="number" id="acc-beta" value="2" min="0.1" step="0.1">
+                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
+                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
             </div>
             <div>
-                ${HelpTooltip.labelWithHelp('목표 보증 수명 (Bx)', '')}
+                ${HT.labelWithHelp('신뢰 수준 (C)', '')}
                 <div class="input-with-unit">
-                    <input type="number" id="acc-target-life" value="20000" min="1" step="100">
+                    <input type="number" id="acc-confidence" value="${conf}" min="50" max="99.99" step="1">
+                    <span class="input-unit">%</span>
+                </div>
+            </div>
+        </div>
+        <div class="grid-2" style="margin-top:0.75rem">
+            <div>
+                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
+                    <span class="input-unit">%</span>
+                </div>
+            </div>
+            <div>
+                ${HT.labelWithHelp('목표 보증 수명', '')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
                     <span class="input-unit">시간</span>
                 </div>
             </div>
         </div>
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
-                ${HelpTooltip.labelWithHelp('시료 수 (n)', '')}
+                ${HT.labelWithHelp('시료 수 (n)', '')}
                 <div class="input-with-unit">
-                    <input type="number" id="acc-n" value="22" min="1" step="1">
+                    <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
                     <span class="input-unit">개</span>
                 </div>
             </div>
-            <div>
-                ${HelpTooltip.labelWithHelp('신뢰 수준 (C)', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-confidence" value="90" min="50" max="99.99" step="1">
-                    <span class="input-unit">%</span>
-                </div>
-            </div>
-        </div>
-        <div style="margin-top:0.75rem">
-            ${HelpTooltip.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-bx" value="1" min="0.1" max="50" step="0.1">
-                <span class="input-unit">%</span>
-            </div>
+            <div></div>
         </div>`;
 }
 
@@ -2673,12 +2707,17 @@ function renderCombinedInputs() {
 }
 
 function resetAccInputs() {
+    accelerationState = {
+        beta: 2,
+        targetLife: 20000,
+        n: 22,
+        confidence: 90,
+        bx: 1,
+        testTime: 1000
+    };
     updateAccModelInputs();
-    document.getElementById('acc-beta').value = 2;
-    document.getElementById('acc-target-life').value = 20000;
-    document.getElementById('acc-n').value = 22;
-    document.getElementById('acc-confidence').value = 90;
-    document.getElementById('acc-bx').value = 1;
+    const goal = document.querySelector('input[name="acc-goal"]:checked')?.value || 'test_time';
+    renderAccGoalInputs(goal);
 }
 
 function selectRadio(el, groupId) {
@@ -2700,34 +2739,51 @@ function selectRadio(el, groupId) {
 function renderAccGoalInputs(goal) {
     const container = document.getElementById('acc-test-inputs');
     if (!container) return;
-    const beta   = document.getElementById('acc-beta')?.value || '2';
-    const tLife  = document.getElementById('acc-target-life')?.value || '20000';
-    const nVal   = document.getElementById('acc-n')?.value || '22';
-    const conf   = document.getElementById('acc-confidence')?.value || '90';
-    const bxVal  = document.getElementById('acc-bx')?.value || '1';
-    const tTest  = document.getElementById('acc-test-time')?.value || '1000';
+
+    // DOM에 존재하면 최신 값으로 state 갱신
+    if (document.getElementById('acc-beta')) {
+        const val = parseFloat(document.getElementById('acc-beta').value);
+        if (!isNaN(val)) accelerationState.beta = val;
+    }
+    if (document.getElementById('acc-target-life')) {
+        const val = parseFloat(document.getElementById('acc-target-life').value);
+        if (!isNaN(val)) accelerationState.targetLife = val;
+    }
+    if (document.getElementById('acc-n')) {
+        const val = parseInt(document.getElementById('acc-n').value);
+        if (!isNaN(val)) accelerationState.n = val;
+    }
+    if (document.getElementById('acc-confidence')) {
+        const val = parseFloat(document.getElementById('acc-confidence').value);
+        if (!isNaN(val)) accelerationState.confidence = val;
+    }
+    if (document.getElementById('acc-bx')) {
+        const val = parseFloat(document.getElementById('acc-bx').value);
+        if (!isNaN(val)) accelerationState.bx = val;
+    }
+    if (document.getElementById('acc-test-time')) {
+        const val = parseFloat(document.getElementById('acc-test-time').value);
+        if (!isNaN(val)) accelerationState.testTime = val;
+    }
+
+    const beta   = accelerationState.beta;
+    const tLife  = accelerationState.targetLife;
+    const nVal   = accelerationState.n;
+    const conf   = accelerationState.confidence;
+    const bxVal  = accelerationState.bx;
+    const tTest  = accelerationState.testTime;
 
     const HT = HelpTooltip;
     if (goal === 'test_time') {
-        // 필요 시험 시간 계산: 시만, n, C, 목표수명, 목표고장률 필요
+        // 필요 시험 시간 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시료수(n)
         container.innerHTML = `
         <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
-            필요 입력: <strong>시만(n), 신뢰수준(C), 목표수명, 목표측의</strong> → 필요 시험시간 계산
+            필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시료수(n)</strong> → 필요 시험시간 계산
         </div>
-        ${renderAccTestCommonInputs(beta, tLife, nVal, conf, bxVal)}`;
-    } else if (goal === 'sample_size') {
-        // 필요 시료 수 계산: 시험시간, C, 목표수명, 목표측의 필요
-        container.innerHTML = `
-        <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
-            필요 입력: <strong>시험시간, 신뢰수준(C), 목표수명, 목표측의</strong> → 필요 시료수 계산
-        </div>
-        <div class="grid-2" style="margin-bottom:0.75rem">
+        <div class="grid-2">
             <div>
-                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 지속 시간')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
+                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
+                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
             </div>
             <div>
                 ${HT.labelWithHelp('신뢰 수준 (C)', '')}
@@ -2737,10 +2793,13 @@ function renderAccGoalInputs(goal) {
                 </div>
             </div>
         </div>
-        <div class="grid-2">
+        <div class="grid-2" style="margin-top:0.75rem">
             <div>
-                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수')}
-                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
+                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
+                    <span class="input-unit">%</span>
+                </div>
             </div>
             <div>
                 ${HT.labelWithHelp('목표 보증 수명', '')}
@@ -2750,20 +2809,7 @@ function renderAccGoalInputs(goal) {
                 </div>
             </div>
         </div>
-        <div style="margin-top:0.75rem">
-            ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
-                <span class="input-unit">%</span>
-            </div>
-        </div>`;
-    } else if (goal === 'life') {
-        // 인정 수명 계산: n, 시험시간, C, 형상모수, 목표 Bx 필요
-        container.innerHTML = `
-        <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
-            필요 입력: <strong>시료수(n), 시험시간, 신뢰수준(C), 형상모수</strong> → 인정 Bx 수명 계산
-        </div>
-        <div class="grid-2" style="margin-bottom:0.75rem">
+        <div class="grid-2" style="margin-top:0.75rem">
             <div>
                 ${HT.labelWithHelp('시료 수 (n)', '')}
                 <div class="input-with-unit">
@@ -2771,15 +2817,19 @@ function renderAccGoalInputs(goal) {
                     <span class="input-unit">개</span>
                 </div>
             </div>
-            <div>
-                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 시간')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
-            </div>
+            <div></div>
+        </div>`;
+    } else if (goal === 'sample_size') {
+        // 필요 시료 수 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시험시간
+        container.innerHTML = `
+        <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
+            필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시험시간</strong> → 필요 시료수 계산
         </div>
         <div class="grid-2">
+            <div>
+                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
+                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
+            </div>
             <div>
                 ${HT.labelWithHelp('신뢰 수준 (C)', '')}
                 <div class="input-with-unit">
@@ -2787,71 +2837,117 @@ function renderAccGoalInputs(goal) {
                     <span class="input-unit">%</span>
                 </div>
             </div>
+        </div>
+        <div class="grid-2" style="margin-top:0.75rem">
             <div>
-                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수')}
-                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
+                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
+                    <span class="input-unit">%</span>
+                </div>
+            </div>
+            <div>
+                ${HT.labelWithHelp('목표 보증 수명', '')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
+                    <span class="input-unit">시간</span>
+                </div>
             </div>
         </div>
-        <div style="margin-top:0.75rem">
-            ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
-                <span class="input-unit">%</span>
+        <div class="grid-2" style="margin-top:0.75rem">
+            <div>
+                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 지속 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
+                    <span class="input-unit">시간</span>
+                </div>
             </div>
+            <div></div>
+        </div>`;
+    } else if (goal === 'life') {
+        // 인정 수명 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 시료수(n), 시험시간
+        container.innerHTML = `
+        <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
+            필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 시료수(n), 시험시간</strong> → 인정 Bx 수명 계산
+        </div>
+        <div class="grid-2">
+            <div>
+                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
+                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
+            </div>
+            <div>
+                ${HT.labelWithHelp('신뢰 수준 (C)', '')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-confidence" value="${conf}" min="50" max="99.99" step="1">
+                    <span class="input-unit">%</span>
+                </div>
+            </div>
+        </div>
+        <div class="grid-2" style="margin-top:0.75rem">
+            <div>
+                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
+                    <span class="input-unit">%</span>
+                </div>
+            </div>
+            <div>
+                ${HT.labelWithHelp('시료 수 (n)', '')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
+                    <span class="input-unit">개</span>
+                </div>
+            </div>
+        </div>
+        <div class="grid-2" style="margin-top:0.75rem">
+            <div>
+                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
+                    <span class="input-unit">시간</span>
+                </div>
+            </div>
+            <div></div>
         </div>`;
     }
 }
 
-function renderAccTestCommonInputs(beta, tLife, nVal, conf, bxVal) {
-    const HT = HelpTooltip;
-    return `
-    <div class="grid-2">
-        <div>
-            ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β<1: 초기측정<br>β=1: 우발적<br>β>1: 마모')}
-            <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
-        </div>
-        <div>
-            ${HT.labelWithHelp('목표 보증 수명', '')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
-                <span class="input-unit">시간</span>
-            </div>
-        </div>
-    </div>
-    <div class="grid-2" style="margin-top:0.75rem">
-        <div>
-            ${HT.labelWithHelp('시료 수 (n)', '')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
-                <span class="input-unit">개</span>
-            </div>
-        </div>
-        <div>
-            ${HT.labelWithHelp('신뢰 수준 (C)', '')}
-            <div class="input-with-unit">
-                <input type="number" id="acc-confidence" value="${conf}" min="50" max="99.99" step="1">
-                <span class="input-unit">%</span>
-            </div>
-        </div>
-    </div>
-    <div style="margin-top:0.75rem">
-        ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-        <div class="input-with-unit">
-            <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
-            <span class="input-unit">%</span>
-        </div>
-    </div>`;
-}
-
 function runAcceleration() {
-    const model      = document.getElementById('acc-model').value;
-    const beta       = parseFloat(document.getElementById('acc-beta')?.value || '2');
-    const targetLife = parseFloat(document.getElementById('acc-target-life')?.value || '20000');
-    const nSample    = parseInt(document.getElementById('acc-n')?.value || '22');
-    const confidence = parseFloat(document.getElementById('acc-confidence')?.value || '90');
-    const bx         = parseFloat(document.getElementById('acc-bx')?.value || '1');
-    const goal       = document.querySelector('input[name="acc-goal"]:checked')?.value || 'test_time';
-    const tTestUser  = parseFloat(document.getElementById('acc-test-time')?.value || '1000');
+    const model = document.getElementById('acc-model').value;
+    const goal  = document.querySelector('input[name="acc-goal"]:checked')?.value || 'test_time';
+
+    // DOM에 존재하면 최신 값으로 state 갱신
+    if (document.getElementById('acc-beta')) {
+        const val = parseFloat(document.getElementById('acc-beta').value);
+        if (!isNaN(val)) accelerationState.beta = val;
+    }
+    if (document.getElementById('acc-target-life')) {
+        const val = parseFloat(document.getElementById('acc-target-life').value);
+        if (!isNaN(val)) accelerationState.targetLife = val;
+    }
+    if (document.getElementById('acc-n')) {
+        const val = parseInt(document.getElementById('acc-n').value);
+        if (!isNaN(val)) accelerationState.n = val;
+    }
+    if (document.getElementById('acc-confidence')) {
+        const val = parseFloat(document.getElementById('acc-confidence').value);
+        if (!isNaN(val)) accelerationState.confidence = val;
+    }
+    if (document.getElementById('acc-bx')) {
+        const val = parseFloat(document.getElementById('acc-bx').value);
+        if (!isNaN(val)) accelerationState.bx = val;
+    }
+    if (document.getElementById('acc-test-time')) {
+        const val = parseFloat(document.getElementById('acc-test-time').value);
+        if (!isNaN(val)) accelerationState.testTime = val;
+    }
+
+    const beta       = accelerationState.beta;
+    const targetLife = accelerationState.targetLife;
+    const nSample    = accelerationState.n;
+    const confidence = accelerationState.confidence;
+    const bx         = accelerationState.bx;
+    const tTestUser  = accelerationState.testTime;
 
     let af = 1, modelLabel = '', afFormulaStr = '', afParams = {};
 
@@ -2934,7 +3030,37 @@ function runAcceleration() {
 }
 
 function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targetLife, bx, goal, model, afVsStress, afParams) {
-    const goalResults = calcGoalResults(af, beta, n, targetLife, confidence_from_ui(), bx, goal);
+    // 목표별 핵심 결과 계산 (runAcceleration에서 전달받은 conf는 formulaResult에 이미 사용됨)
+    const conf = parseFloat(document.getElementById('acc-confidence')?.value || '90');
+    const tTestUser = parseFloat(document.getElementById('acc-test-time')?.value || '1000');
+    const bxFraction = bx / 100;
+    const C = conf / 100;
+    const chi2 = jStat.chisquare.inv(C, 2);
+    const etaUseReq = targetLife / Math.pow(-Math.log(1 - bxFraction), 1 / beta);
+
+    const goalResults = [];
+    if (!goal || goal === 'test_time') {
+        const tTest = (1 / af) * Math.pow((chi2 * Math.pow(etaUseReq, beta)) / (2 * Math.max(n, 1)), 1 / beta);
+        const tTestFinal = Math.max(1, Math.round(tTest));
+        goalResults.push({ label: '필요 시험 시간', value: isFinite(tTestFinal) ? `${tTestFinal.toLocaleString()}h` : '-', color: 'var(--accent-color)' });
+        const etaUse = Math.pow((2 * Math.pow(tTestFinal * af, beta) * Math.max(n, 1)) / chi2, 1 / beta);
+        const bxLife = etaUse * Math.pow(-Math.log(1 - bxFraction), 1 / beta);
+        goalResults.push({ label: `사용조건 척도모수 (η_use)`, value: isFinite(etaUse) ? `${Math.round(etaUse).toLocaleString()}h` : '-', color: 'var(--success)' });
+        goalResults.push({ label: `B${bx} 보증 수명 (B${bx} Life)`, value: isFinite(bxLife) ? `${Math.round(bxLife).toLocaleString()}h` : '-', color: 'var(--warning)' });
+    } else if (goal === 'sample_size') {
+        const num = chi2 * Math.pow(etaUseReq, beta);
+        const den = 2 * Math.pow(tTestUser * af, beta);
+        const nReq = Math.ceil(num / den);
+        goalResults.push({ label: '필요 시료 수', value: `${nReq}개`, color: 'var(--accent-color)' });
+        goalResults.push({ label: `목표 B${bx} 수명`, value: `${targetLife.toLocaleString()}h`, color: 'var(--text-primary)' });
+        goalResults.push({ label: '시험 시간', value: `${tTestUser.toLocaleString()}h`, color: 'var(--text-secondary)' });
+    } else if (goal === 'life') {
+        const certifiedLife = af * tTestUser * Math.pow(-Math.log(1 - bxFraction), 1/beta) / Math.pow(chi2/(2 * Math.max(n, 1)), 1/beta);
+        goalResults.push({ label: `B${bx} 인정 수명`, value: isFinite(certifiedLife) ? `${Math.round(certifiedLife).toLocaleString()}h` : '-', color: 'var(--success)' });
+        goalResults.push({ label: '시료 수 (n)', value: `${n}개`, color: 'var(--text-primary)' });
+        goalResults.push({ label: '시험 시간', value: `${tTestUser.toLocaleString()}h`, color: 'var(--text-secondary)' });
+    }
+
     const afChartHtml = (afVsStress && afVsStress.length > 0) ? `
         <div style="margin-top:1.25rem">
             <h4 style="color:var(--text-secondary);margin-bottom:0.75rem">스트레스별 가속 계수 (AF)</h4>
@@ -2980,126 +3106,66 @@ function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targe
                     <span>📚 규격 및 학술 예제 대조 검증 안내</span>
                     <span class="accordion-arrow">▼</span>
                 </div>
-                <div class="accordion-body" style="font-size:0.82rem;padding:0.85rem;border-top:1px solid rgba(255,255,255,0.05);color:var(--text-secondary)">
-                    <p style="margin-bottom:0.5rem">RE-Suite 엔진은 계산의 통계적/물리적 신뢰성을 확보하기 위해 국제 표준 및 학술 대조 검증 세트를 내장하고 있습니다.</p>
-                    <div style="background:rgba(56,189,248,0.02);padding:0.75rem;border-radius:6px;border:1px solid rgba(56,189,248,0.1)">
-                        <strong style="color:var(--text-primary)">[검증 세트] ${refData.verification.source}</strong><br>
-                        • 기준 입력: ${refData.verification.scenario}<br>
-                        • 문헌 기재 AF: <strong style="color:var(--warning)">${refData.verification.targetVal.toFixed(4)}</strong><br>
-                        • RE-Suite 계산 AF: <strong style="color:var(--success)">${refCalculatedVal.toFixed(4)}</strong> (정합성 100% 일치)<br>
-                        <button class="btn btn-sm btn-secondary" style="margin-top:0.6rem;font-size:0.75rem;padding:0.25rem 0.6rem;display:inline-flex;align-items:center;gap:0.25rem" onclick="openAccReferenceModal('${model}')">
-                            <i class="fas fa-search"></i>가이드 보기 및 예제 값 적용하기
-                        </button>
-                    </div>
+                <div class="accordion-body" style="padding:0.75rem 0.85rem;font-size:0.8rem;color:var(--text-secondary)">
+                    검증 예제 조건이 현재 입력값과 다릅니다. 표준가이드 버튼을 눌러 참조 조건을 확인하세요.
                 </div>
             </div>`;
         }
     }
 
-    document.getElementById('acc-result').innerHTML = `
-        <h3 class="section-title">계산 결과 — ${modelLabel}</h3>
-        ${renderDynamicCards(af, goal, goalResults, bx)}
-        ${verificationHtml}
-        <div class="accordion" style="margin-top:1rem">
-            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">📐 계산 과정 (수식 참조) <span class="accordion-arrow">▼</span></div>
-            <div class="accordion-body">
-                <div class="info-box" style="margin-bottom:0.5rem;font-size:0.8rem">
-                    입력된 파라미터 기반 가속 수명 역산 도출 과정입니다.
-                </div>
-                <div class="formula-section" style="border:none;padding:0;background:none">\n${formulaResult.steps}</div>
-            </div>
+    // 결과 HTML 생성 및 #acc-result에 삽입
+    const el = document.getElementById('acc-result');
+    if (!el) return;
+
+    el.innerHTML = `
+    <h3 class="section-title">계산 결과</h3>
+    <div class="grid-4" style="margin-bottom:1.25rem">
+        <div class="stat-card">
+            <div class="label">가속 계수 (AF)</div>
+            <div class="value" style="font-size:1.8rem;color:var(--accent-color)">${af.toFixed(2)}×</div>
+            <div style="font-size:0.75rem;color:var(--text-muted);">${modelLabel}</div>
         </div>
-        <div style="margin-top:1.25rem">
-            <h4 style="color:var(--text-secondary);margin-bottom:0.75rem">시료수 vs 시험 시간 트레이드오프</h4>
-            <div class="chart-container" style="height:300px"><canvas id="acc-tradeoff-chart"></canvas></div>
-        </div>
-        ${afChartHtml}`;
+        ${goalResults.map(r => `
+        <div class="stat-card">
+            <div class="label">${r.label}</div>
+            <div class="value" style="font-size:1.4rem;color:${r.color || 'var(--accent-color)'}">${r.value}</div>
+        </div>`).join('')}
+    </div>
+
+    ${verificationHtml}
+
+    ${afChartHtml}
+
+    <div class="glass-card" style="margin-top:1.25rem">
+        <h4 style="color:var(--text-secondary);margin-bottom:0.75rem">n vs 시험 시간 트레이드오프</h4>
+        <div class="chart-container" style="height:220px"><canvas id="acc-tradeoff-chart"></canvas></div>
+    </div>
+
+    <div style="margin-top:1.25rem">
+        ${formulaResult?.steps ? `<div class="formula-section">${formulaResult.steps}</div>` : ''}
+    </div>`;
+
+    // 차트 그리기
     setTimeout(() => {
-        ChartManager.drawTradeoff('acc-tradeoff-chart', tradeoff);
-        if (afVsStress && afVsStress.length > 0) {
-            const xLabels = { arrhenius:'온도 (°C)', eyring:'온도 (°C)', peck:'습도 (%RH)', coffin_manson:'ΔT (°C)', norris_landzberg:'ΔT (°C)', inverse_power:'스트레스 레벨', arrhenius_power:'온도 (°C)' };
-            const cs = afParams?.tStress || afParams?.dtStress || afParams?.vStress || null;
-            ChartManager.drawAFvsStress('acc-af-chart', afVsStress, xLabels[model] || '스트레스', cs);
+        if (tradeoff && tradeoff.length > 0) {
+            ChartManager.drawTradeoff('acc-tradeoff-chart', tradeoff);
         }
-    }, 100);
+        if (afVsStress && afVsStress.length > 0) {
+            const xLabel = (model === 'peck') ? '습도 (%RH)' :
+                           (model === 'coffin_manson' || model === 'norris_landzberg') ? '온도폭 ΔT (°C)' :
+                           (model === 'inverse_power') ? '전압/전류 스트레스' : '온도 (°C)';
+            ChartManager.drawAFvsStress('acc-af-chart', afVsStress, xLabel);
+        }
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(el, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }] });
+        }
+    }, 80);
 }
-
-function renderDynamicCards(af, goal, gr, bx) {
-    let topCards = '';
-    if (goal === 'test_time') {
-        topCards = `
-            <div class="stat-card"><div class="label">B${bx} 보증 수명</div><div class="value">${gr.bxLife.toLocaleString()} h</div></div>
-            <div class="stat-card" style="border-left:4px solid var(--warning)"><div class="label" style="font-weight:700">필요 시험 시간</div><div class="value warning" style="font-size:1.3rem">${gr.tTest.toLocaleString()} h</div></div>
-        `;
-    } else if (goal === 'sample_size') {
-        topCards = `
-            <div class="stat-card"><div class="label">B${bx} 보증 수명</div><div class="value">${gr.bxLife.toLocaleString()} h</div></div>
-            <div class="stat-card" style="border-left:4px solid var(--warning)"><div class="label" style="font-weight:700">필요 시료 수</div><div class="value warning" style="font-size:1.3rem">${gr.nReq} 개</div></div>
-        `;
-    } else if (goal === 'life') {
-        topCards = `
-            <div class="stat-card"><div class="label">사용 시료 수</div><div class="value">${gr.nReq} 개</div></div>
-            <div class="stat-card" style="border-left:4px solid var(--success)"><div class="label" style="font-weight:700">보증 가능 수명 B${bx}</div><div class="value success" style="font-size:1.3rem">${gr.bxLife.toLocaleString()} h</div></div>
-        `;
-    }
-
-    return `
-        <div class="grid-4" style="margin-bottom:1.25rem">
-            <div class="stat-card"><div class="label">가속 계수 (AF)</div><div class="value accent">${af.toFixed(3)}</div></div>
-            <div class="stat-card"><div class="label">척도모수 η<sub>use</sub></div><div class="value">${gr.etaUse.toLocaleString()}</div></div>
-            ${topCards}
-        </div>
-    `;
-}
-
-function confidence_from_ui() {
-    const el = document.getElementById('acc-confidence');
-    return el ? parseFloat(el.value) : 90;
-}
-
-// ── 계산 목표별 결과 계산 ──
-function calcGoalResults(af, beta, n, targetLife, confidence, bx, goal) {
-    const C = confidence / 100;
-    // chi-square (p, df=2) - JStat or fallback 5.991
-    const chi2 = (typeof jStat !== 'undefined') ? jStat.chisquare.inv(C, 2) : 5.991;
-    const bxFrac = bx / 100;
-    
-    // UI에서 "시험 시간" 텍스트박스 값 추출. (목표가 sample_size/life일 때 존재, 아니면 1000 fallback)
-    const tTestUser = parseFloat(document.getElementById('acc-test-time')?.value || '1000');
-    // η_use 계산
-    const etaUse = targetLife / Math.pow(-Math.log(1 - bxFrac), 1/beta);
-
-    let resOpts = { tTest: 0, etaUse: 0, bxLife: 0, nReq: n };
-
-    if (goal === 'test_time') {
-        resOpts.etaUse = Math.round(etaUse);
-        resOpts.tTest = Math.round((1/af) * Math.pow((chi2 * Math.pow(etaUse, beta)) / (2 * Math.max(n, 1)), 1/beta));
-        resOpts.bxLife = targetLife; // test_time 목표 시 보증 수명은 사용자의 입력(targetLife)과 정확히 매치됨
-        resOpts.nReq = n;
-    } else if (goal === 'sample_size') {
-        resOpts.etaUse = Math.round(etaUse);
-        const numerator = chi2 * Math.pow(etaUse, beta);
-        const denominator = 2 * Math.pow(tTestUser * af, beta);
-        resOpts.nReq = Math.ceil(numerator / denominator);
-        resOpts.bxLife = targetLife;
-        resOpts.tTest = tTestUser;
-    } else if (goal === 'life') {
-        const certifiedLife = af * tTestUser * Math.pow(-Math.log(1 - bxFrac), 1/beta) / Math.pow(chi2/(2 * Math.max(n, 1)), 1/beta);
-        resOpts.bxLife = Math.round(certifiedLife);
-        resOpts.etaUse = Math.round(certifiedLife / Math.pow(-Math.log(1 - bxFrac), 1/beta));
-        resOpts.tTest = tTestUser;
-        resOpts.nReq = n;
-    }
-
-    return resOpts;
-}
-
-
 
 // ═══════════════════════════════════════════
 // Warranty 분석 탭
 // ═══════════════════════════════════════════
-let warrantyState = { step: 'input', fits: [], selectedFit: null, preprocessed: null, forecastResult: null };
+let warrantyState = { step: 'input', fits: [], selectedFit: null, preprocessed: null, forecastResult: null, shipmentPeriods: 12, returnPeriods: 12, confidence: 90, warrantyMonths: null, rawData: null };
 
 function renderWarrantyTab() {
     warrantyState.step = warrantyState.fits.length > 0 ? warrantyState.step : 'input';
@@ -3112,7 +3178,7 @@ function renderWarrantyTab() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 Warranty 분석
             </h2>
-            <p style="color:var(--text-secondary);font-size:0.8rem;margin:0">Nevada 차트 입력 → 분포 적합 → 고장 예측</p>
+            <p style="color:var(--text-secondary);font-size:0.8rem;margin:0">Nevada 달력 차트 입력 → 분포 적합 → 고장 예측</p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center" id="warranty-steps">
             ${stepIds.map((s,i) => `<div class="badge ${warrantyState.step===s?'badge-purple':''}" style="cursor:pointer;${warrantyState.step===s?'font-weight:700':'opacity:0.5'}" onclick="warrantyGoStep('${s === 'input' ? 'input' : warrantyState.fits.length > 0 ? s : 'input'}')">${i+1}. ${stepLabels[i]}</div>${i<2?'<span style="color:var(--text-muted)">→</span>':''}`).join('')}
@@ -3139,53 +3205,76 @@ function warrantyGoStep(step) {
         b.style.fontWeight = warrantyState.step===s?'700':'400';
         b.style.opacity = warrantyState.step===s?'1':'0.5';
     });
+    if (step === 'input') setTimeout(initWarrantyGrid, 100);
+    if (step === 'fitted') setTimeout(drawWarrantyDistributionCharts, 100);
     if (step === 'forecast' && warrantyState.forecastResult) setTimeout(drawWarrantyCharts, 100);
 }
 
 function renderWarrantyInput() {
     return `
     <div style="display:flex;flex-direction:column;gap:1rem">
+        <!-- 네바다 차트 규격 설정 카드 -->
+        <div class="glass-card">
+            <h3 class="section-title" style="margin-bottom:0.75rem">네바다 차트 규격 설정</h3>
+            <div class="grid-4" style="margin-bottom:0.5rem">
+                <div>
+                    ${HelpTooltip.labelWithHelp('출하 기간 수 (행)', '생산 및 출하 배치(Cohort)의 개수(행 수)를 설정합니다.')}
+                    <input type="number" id="warranty-shipment-periods" class="input-field" value="${warrantyState.shipmentPeriods || 12}" min="2" max="36" step="1" onchange="changeWarrantyShipmentPeriods(this.value)">
+                </div>
+                <div>
+                    ${HelpTooltip.labelWithHelp('분석 기간 수 (열)', '모니터링 및 고장이 일어난 최대 기간(열 수)을 설정합니다.')}
+                    <input type="number" id="warranty-return-periods" class="input-field" value="${warrantyState.returnPeriods || 12}" min="2" max="36" step="1" onchange="changeWarrantyReturnPeriods(this.value)">
+                </div>
+                <div>
+                    ${HelpTooltip.labelWithHelp('신뢰수준 (%)', '신뢰구간(Confidence Interval) 계산에 사용할 확률입니다. 기본값은 90%입니다.')}
+                    <input type="number" id="warranty-confidence" class="input-field" value="${warrantyState.confidence || 90}" min="50" max="99.9" step="1">
+                </div>
+                <div>
+                    ${HelpTooltip.labelWithHelp('보증 기간 (기)', '미입력 시 전체 가동 기간을 분석 범위로 잡습니다. 입력 시 해당 기간 이후 고장은 보증 제외 처리됩니다.')}
+                    <input type="number" id="warranty-months" class="input-field" value="${warrantyState.warrantyMonths || ''}" placeholder="예: 12" min="1">
+                </div>
+            </div>
+        </div>
+
         <div class="glass-card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
-                <h3 class="section-title" style="margin:0">Nevada 차트 데이터 입력</h3>
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <h3 class="section-title" style="margin:0">Nevada 차트 데이터 입력</h3>
+                    ${HelpTooltip.create('달력(Calendar) 기준 Nevada 차트: 세로행은 출하 기간, 가로열은 실제 고장 발생 기간을 나타냅니다. 출하 시점 이전(회색 영역)은 입력이 비활성화됩니다.')}
+                </div>
                 <div style="display:flex;gap:0.4rem">
-                    <button class="btn btn-sm btn-secondary" onclick="fillWarrantySample()">📋 샘플 데이터</button>
+                    <button class="btn btn-sm btn-secondary" onclick="fillWarrantySample()">📋 샘플 데이터 채우기</button>
                     <button class="btn btn-sm btn-secondary" onclick="clearWarrantyGrid()">초기화</button>
                 </div>
             </div>
 
             <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;line-height:1.6">
-                <strong>행</strong> = 코호트(생산월), <strong>1열</strong> = 판매 수량, <strong>2열~</strong> = 서비스 개월별 고장 수<br>
+                <strong>세로 행</strong> = 출하 기수, <strong>1열</strong> = 출하 수량, <strong>2열 이후</strong> = 달력 기준 고장 기수별 고장 수 (예: 1열=출하수량, 2열=1기 고장, 3열=2기 고장...)<br>
                 엑셀에서 <strong>복사(Ctrl+C) → 붙여넣기(Ctrl+V)</strong> 가능합니다.
             </div>
 
             <!-- Handsontable 그리드 -->
-            <div id="warranty-hot-grid" style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden;height:260px"></div>
+            <div id="warranty-hot-grid" style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden;height:320px"></div>
 
-            <div class="grid-2" style="margin-top:0.85rem">
-                <div>
-                    ${HelpTooltip.labelWithHelp('보증 기간 (개월)', '미입력 시 전체 기간')}
-                    <input type="number" id="warranty-months" class="input-field" placeholder="예: 24" min="1">
-                </div>
-                <div style="display:flex;align-items:flex-end">
-                    <button class="btn btn-primary" style="width:100%;min-height:44px" onclick="runWarrantyPreprocess()">▶ 분석 시작</button>
-                </div>
+            <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+                <button class="btn btn-primary" style="width:100%;max-width:250px;min-height:44px" onclick="runWarrantyPreprocess()">▶ 분석 시작</button>
             </div>
         </div>
 
         <div class="glass-card" style="padding:1rem">
-            <h4 class="section-title" style="font-size:0.9rem;margin-bottom:0.5rem">💡 입력 가이드</h4>
+            <h4 class="section-title" style="font-size:0.9rem;margin-bottom:0.5rem">💡 Nevada 차트 입력 가이드</h4>
             <div style="font-size:0.8rem;line-height:1.8;color:var(--text-secondary)">
                 <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:0.75rem;font-family:monospace;font-size:0.72rem;overflow-x:auto;margin-bottom:0.5rem">
                     <table style="border-collapse:collapse;width:100%">
-                        <thead><tr><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--purple)">판매수량</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">1개월</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">2개월</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">3개월</th></tr></thead>
+                        <thead><tr><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--purple)">출하 기수</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--purple)">출하 수량</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">1기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">2기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">3기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--text-muted)">...</th></tr></thead>
                         <tbody>
-                            <tr><td style="padding:4px 8px;color:var(--purple)">1623</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">7</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">11</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">12</td></tr>
-                            <tr><td style="padding:4px 8px;color:var(--purple)">3723</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">2</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">7</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">11</td></tr>
+                            <tr><td style="padding:4px 8px;color:var(--purple)">1기 출하</td><td style="padding:4px 8px;color:var(--purple)">1000</td><td style="padding:4px 8px;text-align:center;background:rgba(255,255,255,0.05);color:var(--text-muted)">[비활성]</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">3</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">5</td><td style="padding:4px 8px;text-align:center;color:var(--text-muted)">...</td></tr>
+                            <tr><td style="padding:4px 8px;color:var(--purple)">2기 출하</td><td style="padding:4px 8px;color:var(--purple)">1200</td><td style="padding:4px 8px;text-align:center;background:rgba(255,255,255,0.05);color:var(--text-muted)">[비활성]</td><td style="padding:4px 8px;text-align:center;background:rgba(255,255,255,0.05);color:var(--text-muted)">[비활성]</td><td style="padding:4px 8px;text-align:center;color:var(--danger)">2</td><td style="padding:4px 8px;text-align:center;color:var(--text-muted)">...</td></tr>
                         </tbody>
                     </table>
                 </div>
-                <div class="info-box" style="border-color:rgba(245,158,11,0.3);color:var(--warning);font-size:0.8rem">⚠️ 각 행의 고장 합계가 해당 기간의 판매 수량을 초과하지 않아야 합니다.</div>
+                <div style="margin-bottom:0.5rem">달력(Calendar) 기준 차트에서는 출하 시점 이전에 고장(반납)이 발생할 수 없으므로, 대각선 왼쪽 아래 영역은 자동으로 **회색 비활성 영역** 처리됩니다.</div>
+                <div class="info-box" style="border-color:rgba(245,158,11,0.3);color:var(--warning);font-size:0.8rem">⚠️ 각 행의 고장 합계가 해당 기간의 출하 수량을 초과하지 않아야 합니다.</div>
             </div>
         </div>
     </div>`;
@@ -3193,26 +3282,107 @@ function renderWarrantyInput() {
 
 let _warrantyHot = null;
 
+function changeWarrantyShipmentPeriods(val) {
+    const p = parseInt(val);
+    if (!isFinite(p) || p < 2 || p > 36) return;
+    
+    // 기존 데이터 가져와서 크기 변경 후 백업에 보존
+    if (_warrantyHot) {
+        warrantyState.rawData = _warrantyHot.getData();
+    }
+    warrantyState.shipmentPeriods = p;
+    
+    if (_warrantyHot) {
+        _warrantyHot.destroy();
+        _warrantyHot = null;
+    }
+    initWarrantyGrid();
+}
+
+function changeWarrantyReturnPeriods(val) {
+    const p = parseInt(val);
+    if (!isFinite(p) || p < 2 || p > 36) return;
+    
+    // 기존 데이터 가져와서 크기 변경 후 백업에 보존
+    if (_warrantyHot) {
+        warrantyState.rawData = _warrantyHot.getData();
+    }
+    warrantyState.returnPeriods = p;
+    
+    if (_warrantyHot) {
+        _warrantyHot.destroy();
+        _warrantyHot = null;
+    }
+    initWarrantyGrid();
+}
+
 function initWarrantyGrid() {
     const container = document.getElementById('warranty-hot-grid');
-    if (!container || _warrantyHot) return;
+    if (!container) return;
 
-    // 초기 데이터: 7행 12열 (판매수량 + 11개월)
-    const cols = 12;
-    const rows = 7;
-    const data = Array.from({length: rows}, () => Array(cols).fill(null));
-    const colHeaders = ['판매수량', ...Array.from({length: cols - 1}, (_, i) => `${i + 1}개월`)];
+    if (_warrantyHot) {
+        try { _warrantyHot.destroy(); } catch(e) {}
+        _warrantyHot = null;
+    }
+
+    const rows = warrantyState.shipmentPeriods || 12;
+    const cols = (warrantyState.returnPeriods || 12) + 1; // 출하수량(1) + 고장 1기 ~ 고장 M기
+    
+    // 기존 데이터가 있다면 자르거나 붙여서 복원
+    let data;
+    if (warrantyState.rawData && warrantyState.rawData.length > 0) {
+        data = Array.from({length: rows}, (_, r) => {
+            const oldRow = warrantyState.rawData[r] || [];
+            return Array.from({length: cols}, (_, c) => {
+                const val = oldRow[c];
+                return val !== undefined ? val : null;
+            });
+        });
+    } else {
+        data = Array.from({length: rows}, () => Array(cols).fill(null));
+    }
+    
+    const colHeaders = ['출하 수량 (Shipment Qty)', ...Array.from({length: cols - 1}, (_, i) => `${i + 1}기 고장`)];
+    const rowHeaders = Array.from({length: rows}, (_, i) => `${i + 1}기 출하`);
 
     _warrantyHot = new Handsontable(container, {
         data,
         colHeaders,
-        rowHeaders: true,
-        height: 240,
+        rowHeaders,
+        height: 300,
         width: '100%',
         licenseKey: 'non-commercial-and-evaluation',
         stretchH: 'all',
-        contextMenu: ['row_above', 'row_below', 'remove_row', '---------', 'undo', 'redo']
+        rowHeaderWidth: 100,
+        colWidths: function(index) {
+            return index === 0 ? 170 : 80;
+        },
+        contextMenu: ['undo', 'redo'],
+        // 대각선 회색 비활성 처리
+        cells: function(row, col) {
+            const cellProperties = {};
+            if (col === 0) {
+                cellProperties.readOnly = false;
+                cellProperties.className = 'htLeft';
+            } else if (col > 0 && col <= row) {
+                // 달력 네바다 차트 기준 비활성화: col <= row 이면 비활성
+                cellProperties.readOnly = true;
+                cellProperties.className = 'htCenter htDimmed'; // 회색 비활성
+            } else {
+                cellProperties.readOnly = false;
+                cellProperties.className = 'htCenter';
+            }
+            return cellProperties;
+        },
+        afterChange: function(changes, source) {
+            if (source !== 'loadData') {
+                warrantyState.rawData = this.getData();
+            }
+        }
     });
+
+    // 초기 로드 시에도 백업본 동기화
+    warrantyState.rawData = _warrantyHot.getData();
 }
 
 function clearWarrantyGrid() {
@@ -3221,6 +3391,7 @@ function clearWarrantyGrid() {
         const cols = _warrantyHot.countCols();
         const empty = Array.from({length: rows}, () => Array(cols).fill(null));
         _warrantyHot.loadData(empty);
+        warrantyState.rawData = empty;
     }
 }
 
@@ -3228,52 +3399,161 @@ function fillWarrantySample() {
     if (!_warrantyHot) initWarrantyGrid();
     if (!_warrantyHot) return;
 
-    const sampleData = [
-        [1623, 7,11,12,15,18,20,27,29,24,27,29],
-        [3723, 2, 7,11,17,20,25,30,33,38,42,46],
-        [1319, 1, 4, 6, 7, 9,11,14,14,17,10,null],
-        [3600, 2, 6,12,15,20,25,28,33,36,41,null],
-        [3298, 0, 6,10,14,19,22,26,30,40,43,null],
-        [1333, 0, 3, 4, 6, 7, 9,11,12,13,null,null],
-        [1584, 0, 0, 3, 4, 6, 5, 7, 9,11,null,null],
-    ];
-    _warrantyHot.loadData(sampleData);
-    const wm = document.getElementById('warranty-months');
-    if (wm) wm.value = '24';
+    const rows = warrantyState.shipmentPeriods || 12;
+    const cols = (warrantyState.returnPeriods || 12) + 1;
+    const data = Array.from({length: rows}, () => Array(cols).fill(null));
+
+    // Weibull 분포 모형 기반 실감 나는 고장 반납 데이터 모사 (beta=1.5, eta=15)
+    const eta = 15.0;
+    const beta = 1.5;
+    
+    for (let i = 0; i < rows; i++) {
+        // 매달 1000 ~ 1800 사이 생산
+        const sales = 1000 + Math.round((i * 123 + 77) % 800);
+        data[i][0] = sales;
+
+        for (let j = 1; j < cols; j++) {
+            if (j <= i) {
+                data[i][j] = null; // 회색 비활성 영역
+            } else {
+                const age = j - i; // 서비스 경과 기간 (1, 2, 3...)
+                // Weibull CDF 증가분 계산
+                const pNow = 1 - Math.exp(-Math.pow(age / eta, beta));
+                const pPrev = 1 - Math.exp(-Math.pow((age - 1) / eta, beta));
+                const prob = Math.max(0, pNow - pPrev);
+                
+                // 자연스러운 변동성을 위한 노이즈
+                const noise = 0.85 + 0.3 * Math.sin(i * j + 1.5);
+                let failures = Math.round(sales * prob * noise);
+                if (failures < 0) failures = 0;
+                data[i][j] = failures;
+            }
+        }
+    }
+
+    _warrantyHot.loadData(data);
+    warrantyState.rawData = data;
 }
 
 function runWarrantyPreprocess() {
     if (!_warrantyHot) { showWarrantyError('데이터를 입력하세요.'); return; }
 
-    const rawData = _warrantyHot.getData();
-    // 유효한 행만 추출 (판매수량이 있는 행)
-    const sales = [];
-    const matrixRows = [];
-    for (const row of rawData) {
-        const saleVal = parseFloat(row[0]);
-        if (!isFinite(saleVal) || saleVal <= 0) continue;
-        sales.push(saleVal);
-        const failRow = row.slice(1).map(v => {
-            const n = parseFloat(v);
-            return isFinite(n) ? n : 0;
-        });
-        // 끝의 0 제거
-        while (failRow.length > 0 && failRow[failRow.length - 1] === 0 && !row[failRow.length]) failRow.pop();
-        matrixRows.push(failRow);
+    const btn = document.querySelector('button[onclick="runWarrantyPreprocess()"]');
+    let originalText = '';
+    if (btn) {
+        originalText = btn.innerHTML;
+        btn.innerHTML = `⏳ 분석 중 (잠시만 기다려주세요)...`;
+        btn.disabled = true;
     }
 
-    const wm = parseInt(document.getElementById('warranty-months')?.value) || null;
-    if (sales.length === 0) { showWarrantyError('판매 수량을 입력하세요 (1열).'); return; }
-    if (matrixRows.length === 0) { showWarrantyError('고장 데이터를 입력하세요.'); return; }
+    setTimeout(() => {
+        try {
+            const rawData = _warrantyHot.getData();
+            warrantyState.rawData = rawData; // 분석 시작 시점에 데이터를 확실하게 백업 보존
+            const sales = [];
+            const matrixRows = [];
+            
+            for (let i = 0; i < rawData.length; i++) {
+                const row = rawData[i];
+                const saleVal = parseFloat(row[0]);
+                if (!isFinite(saleVal) || saleVal <= 0) continue;
+                sales.push(saleVal);
+                
+                // col 0 (출하수량) 포함한 행 전체를 넘겨야 preprocessNevada의 1-indexed 스캔과 맞물림
+                const failRow = row.map((v, colIdx) => {
+                    if (colIdx === 0) return saleVal;
+                    // colIdx - 1 이 i보다 작으면 출하 이전 시점 반납이므로 비활성 영역
+                    if (colIdx - 1 < i) {
+                        return null;
+                    }
+                    const n = parseFloat(v);
+                    return isFinite(n) ? n : 0;
+                });
+                
+                matrixRows.push(failRow);
+            }
 
-    const result = WarrantyAnalysis.preprocessNevada(sales, matrixRows, wm);
-    warrantyState.preprocessed = result;
-    warrantyState.warrantyMonths = wm;
-    if (result.failures.length < 3) { showWarrantyError(`고장 데이터가 ${result.failures.length}개로 너무 적습니다 (최소 3개).`); return; }
-    warrantyState.fits = WarrantyAnalysis.fitDistributions(result.failures, result.rightCensored);
-    warrantyState.selectedFit = warrantyState.fits.find(f => f.best) || warrantyState.fits[0] || null;
-    hideWarrantyError();
-    warrantyGoStep('fitted');
+            const wm = parseInt(document.getElementById('warranty-months')?.value) || null;
+            const confidence = parseFloat(document.getElementById('warranty-confidence')?.value || '90');
+            warrantyState.confidence = confidence;
+
+            if (sales.length === 0) { throw new Error('출하 수량을 입력하세요 (1열).'); }
+            if (matrixRows.length === 0) { throw new Error('고장 데이터를 입력하세요.'); }
+
+            const result = WarrantyAnalysis.preprocessNevada(sales, matrixRows, wm);
+            warrantyState.preprocessed = result;
+            warrantyState.warrantyMonths = wm;
+            
+            if (result.failures.length < 3) { 
+                throw new Error(`고장 데이터가 ${result.failures.length}개로 너무 적습니다 (최소 3개).`); 
+            }
+            
+            // 분포 피팅 및 신뢰구간 분석을 위한 초고속 데이터 스케일다운 (Nelder-Mead 멈춤 방지)
+            const MAX_FIT_SAMPLES = 1000;
+            let fitFailures = [...result.failures];
+            let fitCensored = [];
+ 
+            // 1. 관측중단 데이터 축소
+            if (result.rightCensored.length > MAX_FIT_SAMPLES) {
+                const censoredCounts = {};
+                result.rightCensored.forEach(t => {
+                    censoredCounts[t] = (censoredCounts[t] || 0) + 1;
+                });
+                const scale = MAX_FIT_SAMPLES / result.rightCensored.length;
+                Object.entries(censoredCounts).forEach(([tStr, count]) => {
+                    const t = parseFloat(tStr);
+                    const scaledCount = Math.max(1, Math.round(count * scale));
+                    for (let k = 0; k < scaledCount; k++) {
+                        fitCensored.push(t);
+                    }
+                });
+            } else {
+                fitCensored = [...result.rightCensored];
+            }
+ 
+            // 2. 고장 데이터 축소
+            if (fitFailures.length > MAX_FIT_SAMPLES) {
+                const failureCounts = {};
+                fitFailures.forEach(t => {
+                    failureCounts[t] = (failureCounts[t] || 0) + 1;
+                });
+                const scale = MAX_FIT_SAMPLES / fitFailures.length;
+                const newFailures = [];
+                Object.entries(failureCounts).forEach(([tStr, count]) => {
+                    const t = parseFloat(tStr);
+                    const scaledCount = Math.max(1, Math.round(count * scale));
+                    for (let k = 0; k < scaledCount; k++) {
+                        newFailures.push(t);
+                    }
+                });
+                fitFailures = newFailures;
+            }
+
+            // 신뢰수준을 반영하여 분포 적합 수행 (스케일다운된 피팅 전용 데이터 적용)
+            warrantyState.fits = WarrantyAnalysis.fitDistributions(fitFailures, fitCensored);
+            
+            // selectedFit 지정 시, fitDistributions가 저장해 둔 analysisResult의 신뢰수준을 업데이트해 피팅 재실행
+            warrantyState.fits.forEach(f => {
+                if (f.analysisResult) {
+                    const dataRows = [];
+                    fitFailures.forEach(t => dataRows.push({ time: t, event: 'F' }));
+                    fitCensored.forEach(t => dataRows.push({ time: t, event: 'C' }));
+                    f.analysisResult = ReliabilityAnalysis.analyze(dataRows, { distribution: f.name, confidence: confidence / 100 });
+                }
+            });
+ 
+            warrantyState.selectedFit = warrantyState.fits.find(f => f.best) || warrantyState.fits[0] || null;
+            hideWarrantyError();
+            warrantyGoStep('fitted');
+        } catch (e) {
+            showWarrantyError(e.message);
+        } finally {
+            if (btn) {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+    }, 50);
 }
 
 function showWarrantyError(msg) { const el = document.getElementById('warranty-error'); if (el) { el.style.display = 'block'; el.innerHTML = `<div class="info-box" style="border-color:var(--danger);color:var(--danger);margin-bottom:1rem">⚠️ ${msg}</div>`; } }
@@ -3282,7 +3562,25 @@ function hideWarrantyError() { const el = document.getElementById('warranty-erro
 function renderWarrantyFitted() {
     const s = warrantyState.preprocessed?.summary;
     const fits = warrantyState.fits;
-    const dc = { weibull:'var(--accent-color)', lognormal:'var(--success)', normal:'var(--purple)', exponential:'var(--warning)' };
+    const dc = { weibull:'#38bdf8', lognormal:'#f59e0b', normal:'#a78bfa', exponential:'#22c55e' };
+    const sel = warrantyState.selectedFit;
+
+    // Weibull 형상모수 해석 텍스트
+    let betaInterpretationHTML = '';
+    if (sel && sel.name === 'weibull') {
+        const beta = sel.params.beta;
+        const interp = Distributions.interpretBeta(beta);
+        let color = 'var(--purple)';
+        if (interp.type === 'infant') color = 'var(--accent-color)';
+        if (interp.type === 'random') color = 'var(--success)';
+        
+        betaInterpretationHTML = `
+        <div class="info-box" style="border-color:${color};color:${color};margin-bottom:1rem;background:rgba(30, 41, 59, 0.4)">
+            <div style="font-weight:600;margin-bottom:0.2rem">Weibull 형상모수(Shape, β) 분석</div>
+            <div style="font-size:0.82rem;color:var(--text-primary)">${interp.message}</div>
+        </div>`;
+    }
+
     return `
     <div class="grid-4" style="margin-bottom:1rem">
         <div class="stat-card"><div class="label">총 분석 단위</div><div class="value">${(s?.totalUnits||0).toLocaleString()}</div></div>
@@ -3290,21 +3588,152 @@ function renderWarrantyFitted() {
         <div class="stat-card"><div class="label">관측중단</div><div class="value" style="color:var(--accent-color)">${(s?.totalCensored||0).toLocaleString()}</div></div>
         <div class="stat-card"><div class="label">고장률</div><div class="value" style="color:var(--warning)">${(s?.failureRatePct||0).toFixed(2)}%</div></div>
     </div>
+    
+    ${betaInterpretationHTML}
+
     <div class="glass-card" style="margin-bottom:1rem">
         <h3 class="section-title">분포 적합 결과 (AICc 기준)</h3>
         <div class="table-wrapper"><table><thead><tr><th class="table-header"></th><th class="table-header">분포</th><th class="table-header">AICc</th><th class="table-header">MTTF</th><th class="table-header">B10</th></tr></thead>
-        <tbody>${fits.map(f => `<tr onclick="selectWarrantyFit('${f.name}')" style="cursor:pointer;background:${warrantyState.selectedFit?.name===f.name?'rgba(167,139,250,0.1)':'transparent'}">
+        <tbody>${fits.map(f => `<tr onclick="selectWarrantyFit('${f.name}')" style="cursor:pointer;background:${sel?.name===f.name?'rgba(167,139,250,0.1)':'transparent'}">
             <td class="table-cell">${f.best?'<span class="badge badge-purple">✓ 최적</span>':''}</td>
-            <td class="table-cell" style="font-weight:${warrantyState.selectedFit?.name===f.name?'700':'400'};color:${dc[f.name]||'var(--text-primary)'}">${f.displayName}</td>
+            <td class="table-cell" style="font-weight:${sel?.name===f.name?'700':'400'};color:${dc[f.name]||'var(--text-primary)'}">${f.displayName}</td>
             <td class="table-cell">${f.aicc===Infinity?'-':f.aicc.toFixed(2)}</td>
             <td class="table-cell">${f.mttf?f.mttf.toFixed(2):'-'}</td>
             <td class="table-cell">${f.b10?f.b10.toFixed(2):'-'}</td></tr>`).join('')}</tbody></table></div>
     </div>
-    ${warrantyState.selectedFit ? `<div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">선택: ${warrantyState.selectedFit.displayName}</h3><div class="grid-4">${Object.entries(warrantyState.selectedFit.params).map(([k,v]) => `<div class="stat-card"><div class="label">${k}</div><div class="value" style="font-size:1.2rem">${Number(v).toFixed(4)}</div></div>`).join('')}</div></div>` : ''}
-    <div style="display:flex;gap:0.75rem"><button class="btn btn-secondary" onclick="warrantyGoStep('input')">← 데이터 재입력</button><button class="btn btn-primary" style="flex:1" onclick="warrantyGoStep('forecast')" ${!warrantyState.selectedFit?'disabled':''}>예측 시뮬레이션 →</button></div>`;
+    ${sel ? `<div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">선택: ${sel.displayName} 모수</h3><div class="grid-4">${Object.entries(sel.params).map(([k,v]) => `<div class="stat-card"><div class="label">${k}</div><div class="value" style="font-size:1.2rem">${Number(v).toFixed(4)}</div></div>`).join('')}</div></div>` : ''}
+    
+    <!-- 분포 오버레이 & 신뢰구간 비교 패널 -->
+    <div class="glass-card" style="margin-bottom:1rem;padding:0.65rem 1rem">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:0.8rem">
+            <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:600;margin-right:2px">분포 오버레이 비교:</span>
+            ${fits.map(f => {
+                const checked = f.name === sel?.name ? 'checked disabled' : '';
+                return `
+                <label style="cursor:pointer;display:flex;align-items:center;gap:0.3rem;font-size:0.8rem">
+                    <input type="checkbox" class="warranty-compare-checkbox" data-dist="${f.name}" ${checked} onchange="drawWarrantyDistributionCharts()">
+                    <span style="color:${dc[f.name] || 'var(--text-primary)'};font-weight:600">${f.displayName}</span>
+                </label>`;
+            }).join('')}
+            
+            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+                <label style="cursor:pointer;display:flex;align-items:center;gap:0.3rem;font-size:0.8rem">
+                    <input type="checkbox" id="warranty-show-ci" checked onchange="drawWarrantyDistributionCharts()">
+                    <span style="font-weight:600">신뢰구간 표시</span>
+                </label>
+                <input type="number" id="warranty-ci-level" value="${warrantyState.confidence || 90}" min="50" max="99.9" step="1"
+                    style="width:60px;padding:3px 6px;font-size:0.8rem;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);margin-left:6px"
+                    onchange="updateWarrantyCILevel(this.value)">
+                <span style="font-size:0.8rem;color:var(--text-secondary)">%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 순서: f(t) h(t) / F(t) R(t) -->
+    <div class="grid-2" style="gap:1rem;margin-bottom:1rem">
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                <h4 style="color:var(--text-secondary);margin:0">고장 밀도 f(t)</h4>
+                <span class="badge badge-warning">f(t)</span>
+            </div>
+            <div class="chart-container" style="height:280px"><canvas id="warranty-pdf-chart"></canvas></div>
+        </div>
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                <h4 style="color:var(--text-secondary);margin:0">고장률 h(t)</h4>
+                <span class="badge badge-purple">h(t)</span>
+            </div>
+            <div class="chart-container" style="height:280px"><canvas id="warranty-hf-chart"></canvas></div>
+        </div>
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                <h4 style="color:var(--text-secondary);margin:0">불신뢰도 F(t)</h4>
+                <span class="badge badge-danger">F(t)</span>
+            </div>
+            <div class="chart-container" style="height:280px"><canvas id="warranty-cdf-chart"></canvas></div>
+        </div>
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                <h4 style="color:var(--text-secondary);margin:0">신뢰도 R(t)</h4>
+                <span class="badge badge-success">R(t)</span>
+            </div>
+            <div class="chart-container" style="height:280px"><canvas id="warranty-sf-chart"></canvas></div>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:0.75rem"><button class="btn btn-secondary" onclick="warrantyGoStep('input')">← 데이터 재입력</button><button class="btn btn-primary" style="flex:1" onclick="warrantyGoStep('forecast')" ${!sel?'disabled':''}>예측 시뮬레이션 →</button></div>`;
 }
 
-function selectWarrantyFit(name) { warrantyState.selectedFit = warrantyState.fits.find(f => f.name === name) || null; warrantyGoStep('fitted'); }
+function selectWarrantyFit(name) { 
+    warrantyState.selectedFit = warrantyState.fits.find(f => f.name === name) || null; 
+    warrantyGoStep('fitted'); 
+}
+
+function updateWarrantyCILevel(val) {
+    const n = parseFloat(val);
+    if (!isFinite(n) || n < 50 || n > 99.9) return;
+    warrantyState.confidence = n;
+    
+    // 신뢰수준이 변경되면 fitted 상태에서 피팅 전용 데이터로 신뢰성 분석을 다시 수행하여 신뢰구간 데이터를 갱신합니다.
+    const result = warrantyState.preprocessed;
+    if (!result) return;
+    
+    const MAX_FIT_SAMPLES = 1000;
+    let fitFailures = [...result.failures];
+    let fitCensored = [];
+    
+    if (result.rightCensored.length > MAX_FIT_SAMPLES) {
+        const censoredCounts = {};
+        result.rightCensored.forEach(t => {
+            censoredCounts[t] = (censoredCounts[t] || 0) + 1;
+        });
+        const scale = MAX_FIT_SAMPLES / result.rightCensored.length;
+        Object.entries(censoredCounts).forEach(([tStr, count]) => {
+            const t = parseFloat(tStr);
+            const scaledCount = Math.max(1, Math.round(count * scale));
+            for (let k = 0; k < scaledCount; k++) {
+                fitCensored.push(t);
+            }
+        });
+    } else {
+        fitCensored = [...result.rightCensored];
+    }
+    
+    if (fitFailures.length > MAX_FIT_SAMPLES) {
+        const failureCounts = {};
+        fitFailures.forEach(t => {
+            failureCounts[t] = (failureCounts[t] || 0) + 1;
+        });
+        const scale = MAX_FIT_SAMPLES / fitFailures.length;
+        const newFailures = [];
+        Object.entries(failureCounts).forEach(([tStr, count]) => {
+            const t = parseFloat(tStr);
+            const scaledCount = Math.max(1, Math.round(count * scale));
+            for (let k = 0; k < scaledCount; k++) {
+                newFailures.push(t);
+            }
+        });
+        fitFailures = newFailures;
+    }
+
+    // 각 분포에 대해 분석 데이터를 갱신
+    warrantyState.fits.forEach(f => {
+        if (f.analysisResult) {
+            const dataRows = [];
+            fitFailures.forEach(t => dataRows.push({ time: t, event: 'F' }));
+            fitCensored.forEach(t => dataRows.push({ time: t, event: 'C' }));
+            f.analysisResult = ReliabilityAnalysis.analyze(dataRows, { distribution: f.name, confidence: n / 100 });
+        }
+    });
+
+    // 선택된 분포 객체 갱신
+    if (warrantyState.selectedFit) {
+        warrantyState.selectedFit = warrantyState.fits.find(f => f.name === warrantyState.selectedFit.name) || warrantyState.fits[0];
+    }
+    
+    // 차트 다시 그리기
+    drawWarrantyDistributionCharts();
+}
 
 function renderWarrantyForecast() {
     const sel = warrantyState.selectedFit;
@@ -3333,7 +3762,21 @@ function runWarrantyForecast() {
         const cost = parseFloat(document.getElementById('fc-cost').value) || 0;
         const future = WarrantyAnalysis.parseNumberLine(document.getElementById('fc-future').value);
         const wm = warrantyState.warrantyMonths || null;
-        warrantyState.forecastResult = WarrantyAnalysis.forecast(sel.name, sel.params, existing, future, months, cost, wm);
+ 
+        // 기존 설치 베이스의 평균 서비스 연령(개월) 추정 (Fallback용)
+        let averageAge = null;
+        if (warrantyState.preprocessed) {
+            const fList = warrantyState.preprocessed.failures || [];
+            const cList = warrantyState.preprocessed.rightCensored || [];
+            const totalT = [...fList, ...cList].reduce((s, v) => s + v, 0);
+            const totalN = fList.length + cList.length;
+            if (totalN > 0) {
+                averageAge = totalT / totalN;
+            }
+        }
+ 
+        const cohorts = warrantyState.preprocessed?.cohorts || null;
+        warrantyState.forecastResult = WarrantyAnalysis.forecast(sel.name, sel.params, existing, future, months, cost, wm, averageAge, cohorts);
         const el = document.getElementById('warranty-forecast-result');
         if (el) {
             el.innerHTML = renderWarrantyForecastResult();
@@ -3352,9 +3795,11 @@ function renderWarrantyForecastResult() {
     const fr = warrantyState.forecastResult;
     if (!fr) return '';
     return `
-    <div class="grid-2" style="margin-bottom:1rem">
+    <div class="grid-4" style="margin-bottom:1rem">
         <div class="stat-card"><div class="label">총 예상 고장</div><div class="value" style="color:var(--danger)">${fr.totalFailures.toLocaleString()}대</div></div>
         <div class="stat-card"><div class="label">총 예상 비용</div><div class="value" style="color:var(--warning)">$${fr.totalCost.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="label">피크 고장월</div><div class="value" style="color:var(--purple)">${fr.peakMonth}월</div></div>
+        <div class="stat-card"><div class="label">월평균 고장</div><div class="value" style="color:var(--accent-color)">${fr.avgFailures.toLocaleString()}대</div></div>
     </div>
     <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">월별 예상 고장</h3><div class="chart-container" style="height:260px"><canvas id="warranty-bar-chart"></canvas></div></div>
     <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">누적 고장/비용</h3><div class="chart-container" style="height:220px"><canvas id="warranty-cumul-chart"></canvas></div></div>
@@ -3367,6 +3812,154 @@ function drawWarrantyCharts() {
     const labels = fr.monthly.map(r => `${r.month}월`);
     ChartManager.drawBar('warranty-bar-chart', labels, [{ label: '예상 고장', data: fr.monthly.map(r => r.failures), color: CONSTANTS.CHART_COLORS.danger }], '예측 월', '고장 수');
     ChartManager.drawDualAxis('warranty-cumul-chart', labels, { label: '누적 고장', data: fr.monthly.map(r => r.cumulativeFailures), color: CONSTANTS.CHART_COLORS.danger }, { label: '누적 비용($)', data: fr.monthly.map(r => r.cumulativeCost), color: CONSTANTS.CHART_COLORS.warning }, '예측 월');
+}
+
+function drawWarrantyDistributionCharts() {
+    const sel = warrantyState.selectedFit;
+    if (!sel || !sel.analysisResult) return;
+
+    const r = sel.analysisResult;
+    const showCI = document.getElementById('warranty-show-ci')?.checked ?? true;
+    const dc = { weibull:'#38bdf8', lognormal:'#f59e0b', normal:'#a78bfa', exponential:'#22c55e' };
+
+    // 헬퍼: 2D 점 리스트 생성
+    function mkPts(yArr, plotDataObj) {
+        const pd = plotDataObj || r.plotData;
+        if (!yArr) return [];
+        return pd.x.map((x, i) => ({ x, y: yArr[i] }));
+    }
+
+    // 헬퍼: 신뢰구간 영역 데이터셋 생성 (투명 채우기)
+    function mkCI(yUpper, yLower, color, plotDataObj) {
+        if (!yUpper || !yLower) return [];
+        const pd = plotDataObj || r.plotData;
+        const xList = pd.x;
+        const upperPts = [], lowerPts = [];
+        for (let i = 0; i < xList.length; i++) {
+            if (isFinite(yUpper[i]) && yUpper[i] >= 0) upperPts.push({ x: xList[i], y: yUpper[i] });
+            if (isFinite(yLower[i]) && yLower[i] >= 0) lowerPts.push({ x: xList[i], y: yLower[i] });
+        }
+        return [
+            { label: 'Upper CI', data: upperPts, borderColor: 'transparent', backgroundColor: 'transparent', fill: false, pointRadius: 0 },
+            { label: 'Lower CI', data: lowerPts, borderColor: 'transparent', backgroundColor: color + '25', fill: '-1', pointRadius: 0 }
+        ];
+    }
+
+    // 체크된 오버레이 비교 대상 모으기 (현재 선택 분포 제외)
+    const overlayFits = Array.from(document.querySelectorAll('.warranty-compare-checkbox'))
+        .filter(cb => cb.checked && cb.dataset.dist !== sel.name)
+        .map(cb => warrantyState.fits.find(f => f.name === cb.dataset.dist))
+        .filter(f => f && f.analysisResult);
+
+    // Kaplan-Meier 경험적 고장 점 계산
+    let km = null;
+    try {
+        if (r.dataSummary.nFailures >= 2) {
+            km = Statistics.computeKaplanMeier(r.dataSummary.failures, r.dataSummary.censored);
+        }
+    } catch(e) { 
+        console.warn('Warranty KM 계산 실패:', e); 
+    }
+
+    const makeOpts = (yLabel) => {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            animation: { duration: 400 },
+            plugins: { 
+                legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
+                zoom: {
+                    pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+                    zoom: {
+                        wheel: { enabled: true, modifierKey: 'ctrl' },
+                        pinch: { enabled: true },
+                        mode: 'xy'
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'linear', title: { display: true, text: '시간 (개월)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                y: { title: { display: true, text: yLabel, color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } }
+            }
+        };
+    };
+
+    // ── f(t) 차트 ──
+    const pdfDsets = [
+        { label: `f(t) – ${sel.displayName}`, data: mkPts(r.plotData.pdf), borderColor: '#f59e0b', backgroundColor: '#f59e0b18', fill: false, pointRadius: 0, borderWidth: 2.5, tension: 0.3 }
+    ];
+    overlayFits.forEach(of => {
+        const oRes = of.analysisResult;
+        const color = dc[of.name] || '#94a3b8';
+        pdfDsets.push({
+            label: `f(t) – ${of.displayName}`, data: mkPts(oRes.plotData.pdf, oRes.plotData), borderColor: color, backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1.8, borderDash: [4,4], tension: 0.3
+        });
+    });
+    ChartManager.createOrUpdate('warranty-pdf-chart', { type: 'line', data: { datasets: pdfDsets }, options: makeOpts('f(t)') });
+
+    // ── h(t) 차트 ──
+    const hfDsets = [
+        { label: `h(t) – ${sel.displayName}`, data: mkPts(r.plotData.hf), borderColor: '#a78bfa', backgroundColor: '#a78bfa18', fill: false, pointRadius: 0, borderWidth: 2.5, tension: 0.3 }
+    ];
+    if (showCI && r.plotData.hfLower) {
+        hfDsets.push(...mkCI(r.plotData.hfUpper, r.plotData.hfLower, '#a78bfa'));
+    }
+    overlayFits.forEach(of => {
+        const oRes = of.analysisResult;
+        const color = dc[of.name] || '#94a3b8';
+        hfDsets.push({
+            label: `h(t) – ${of.displayName}`, data: mkPts(oRes.plotData.hf, oRes.plotData), borderColor: color, backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1.8, borderDash: [4,4], tension: 0.3
+        });
+        if (showCI && oRes.plotData.hfLower) {
+            hfDsets.push(...mkCI(oRes.plotData.hfUpper, oRes.plotData.hfLower, color, oRes.plotData));
+        }
+    });
+    ChartManager.createOrUpdate('warranty-hf-chart', { type: 'line', data: { datasets: hfDsets }, options: makeOpts('h(t)') });
+
+    // ── F(t) 차트 ──
+    const cdfDsets = [
+        { label: `F(t) – ${sel.displayName}`, data: mkPts(r.plotData.cdf), borderColor: '#ef4444', backgroundColor: '#ef444418', fill: false, pointRadius: 0, borderWidth: 2.5, tension: 0.3 }
+    ];
+    if (showCI && r.plotData.cdfLower) {
+        cdfDsets.push(...mkCI(r.plotData.cdfUpper, r.plotData.cdfLower, '#ef4444'));
+    }
+    overlayFits.forEach(of => {
+        const oRes = of.analysisResult;
+        const color = dc[of.name] || '#94a3b8';
+        cdfDsets.push({
+            label: `F(t) – ${of.displayName}`, data: mkPts(oRes.plotData.cdf, oRes.plotData), borderColor: color, backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1.8, borderDash: [4,4], tension: 0.3
+        });
+        if (showCI && oRes.plotData.cdfLower) {
+            cdfDsets.push(...mkCI(oRes.plotData.cdfUpper, oRes.plotData.cdfLower, color, oRes.plotData));
+        }
+    });
+    if (km) {
+        cdfDsets.push({ label: '경험적 F(t)', data: km.times.map((t, i) => ({ x: t, y: km.fValues[i] })), borderColor: '#fff', backgroundColor: '#fff', showLine: false, pointRadius: 4 });
+    }
+    ChartManager.createOrUpdate('warranty-cdf-chart', { type: 'line', data: { datasets: cdfDsets }, options: makeOpts('F(t)') });
+
+    // ── R(t) 차트 ──
+    const sfDsets = [
+        { label: `R(t) – ${sel.displayName}`, data: mkPts(r.plotData.sf), borderColor: '#22c55e', backgroundColor: '#22c55e18', fill: false, pointRadius: 0, borderWidth: 2.5, tension: 0.3 }
+    ];
+    if (showCI && r.plotData.relLower) {
+        sfDsets.push(...mkCI(r.plotData.relUpper, r.plotData.relLower, '#22c55e'));
+    }
+    overlayFits.forEach(of => {
+        const oRes = of.analysisResult;
+        const color = dc[of.name] || '#94a3b8';
+        sfDsets.push({
+            label: `R(t) – ${of.displayName}`, data: mkPts(oRes.plotData.sf, oRes.plotData), borderColor: color, backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1.8, borderDash: [4,4], tension: 0.3
+        });
+        if (showCI && oRes.plotData.relLower) {
+            sfDsets.push(...mkCI(oRes.plotData.relUpper, oRes.plotData.relLower, color, oRes.plotData));
+        }
+    });
+    if (km) {
+        sfDsets.push({ label: '경험적 R(t)', data: km.times.map((t, i) => ({ x: t, y: 1 - km.fValues[i] })), borderColor: '#fff', backgroundColor: '#fff', showLine: false, pointRadius: 4 });
+    }
+    ChartManager.createOrUpdate('warranty-sf-chart', { type: 'line', data: { datasets: sfDsets }, options: makeOpts('R(t)') });
 }
 
 
@@ -3450,7 +4043,12 @@ let _degradHot = null;
 
 function initDegradGrid() {
     const container = document.getElementById('degrad-hot-grid');
-    if (!container || _degradHot) return;
+    if (!container) return;
+
+    if (_degradHot) {
+        try { _degradHot.destroy(); } catch(e) {}
+        _degradHot = null;
+    }
 
     const data = Array.from({length: 10}, () => Array(3).fill(null));
 
@@ -3691,9 +4289,13 @@ function initTabEvents(tabId) {
 // ═══════════════════════════════════════════
 // 앱 초기화
 // ═══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-    switchTab('analysis');
-});
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        switchTab('planning');
+    });
+} else {
+    switchTab('planning');
+}
 
 // ─── 가속 수명 시험 레퍼런스 모달 & 값 설정 ───
 function openAccReferenceModal(modelType) {

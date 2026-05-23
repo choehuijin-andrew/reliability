@@ -16,6 +16,23 @@ const Distributions = (() => {
 
   const LOG2PI = Math.log(2 * Math.PI);
 
+  function groupData(arr) {
+    const map = {};
+    const len = arr.length;
+    for (let i = 0; i < len; i++) {
+      const v = arr[i];
+      if (v > 0) {
+        map[v] = (map[v] || 0) + 1;
+      }
+    }
+    const entries = Object.entries(map);
+    const result = new Array(entries.length);
+    for (let i = 0; i < entries.length; i++) {
+      result[i] = [parseFloat(entries[i][0]), entries[i][1]];
+    }
+    return result;
+  }
+
   // ─────────────────────────────────────────────
   // 정규분포 CDF (jStat 없을 때 대비 내장 근사)
   // Ref: Abramowitz & Stegun (1964), 26.2.17
@@ -190,25 +207,49 @@ const Distributions = (() => {
      */
     logLikelihood: (failures, censored, alpha, beta) => {
       if (alpha <= 0 || beta <= 0) return -Infinity;
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
       let ll = 0;
-      for (const t of failures) {
+      const lnAlpha = Math.log(alpha);
+      const lnBeta = Math.log(beta);
+      for (let i = 0; i < fEntries.length; i++) {
+        const t = fEntries[i][0];
+        const count = fEntries[i][1];
         if (t <= 0) return -Infinity;
         const ta = t / alpha;
-        ll += Math.log(beta) - Math.log(alpha) + (beta - 1) * Math.log(ta) - Math.pow(ta, beta);
+        ll += count * (lnBeta - lnAlpha + (beta - 1) * Math.log(ta) - Math.pow(ta, beta));
       }
-      for (const t of censored) {
-        if (t <= 0) continue;
-        ll -= Math.pow(t / alpha, beta);
+      for (let i = 0; i < cEntries.length; i++) {
+        const t = cEntries[i][0];
+        const count = cEntries[i][1];
+        ll -= count * Math.pow(t / alpha, beta);
       }
       return ll;
     },
 
-    // Log-space 파라미터 버전 (MLE 최적화용, 더 안정적)
-    // params = [log(alpha), log(beta)]
-    negLogLikelihoodLog: (failures, censored) => (params) => {
-      const alpha = Math.exp(params[0]);
-      const beta  = Math.exp(params[1]);
-      return -Weibull.logLikelihood(failures, censored, alpha, beta);
+    negLogLikelihoodLog: (failures, censored) => {
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
+      return (params) => {
+        const alpha = Math.exp(params[0]);
+        const beta  = Math.exp(params[1]);
+        if (alpha <= 0 || beta <= 0) return 1e30;
+        let ll = 0;
+        const lnAlpha = Math.log(alpha);
+        const lnBeta = Math.log(beta);
+        for (let i = 0; i < fEntries.length; i++) {
+          const t = fEntries[i][0];
+          const count = fEntries[i][1];
+          const ta = t / alpha;
+          ll += count * (lnBeta - lnAlpha + (beta - 1) * Math.log(ta) - Math.pow(ta, beta));
+        }
+        for (let i = 0; i < cEntries.length; i++) {
+          const t = cEntries[i][0];
+          const count = cEntries[i][1];
+          ll -= count * Math.pow(t / alpha, beta);
+        }
+        return -ll;
+      };
     }
   };
 
@@ -242,23 +283,48 @@ const Distributions = (() => {
     mttf: (mu, sigma) => Math.exp(mu + 0.5 * sigma * sigma),
     logLikelihood: (failures, censored, mu, sigma) => {
       if (sigma <= 0) return -Infinity;
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
       let ll = 0;
-      for (const t of failures) {
+      const lnSigma = Math.log(sigma);
+      for (let i = 0; i < fEntries.length; i++) {
+        const t = fEntries[i][0];
+        const count = fEntries[i][1];
         if (t <= 0) return -Infinity;
         const z = (Math.log(t) - mu) / sigma;
-        ll += -Math.log(t) - Math.log(sigma) - 0.5 * (LOG2PI + z * z);
+        ll += count * (-Math.log(t) - lnSigma - 0.5 * (LOG2PI + z * z));
       }
-      for (const t of censored) {
-        if (t <= 0) continue;
-        ll += Math.log(Lognormal.sf(t, mu, sigma));
+      for (let i = 0; i < cEntries.length; i++) {
+        const t = cEntries[i][0];
+        const count = cEntries[i][1];
+        const sfVal = Lognormal.sf(t, mu, sigma);
+        ll += count * Math.log(Math.max(sfVal, 1e-15));
       }
       return ll;
     },
-    negLogLikelihoodLog: (failures, censored) => (params) => {
-      // params = [mu, log(sigma)]
-      const mu    = params[0];
-      const sigma = Math.exp(params[1]);
-      return -Lognormal.logLikelihood(failures, censored, mu, sigma);
+    negLogLikelihoodLog: (failures, censored) => {
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
+      return (params) => {
+        const mu = params[0];
+        const sigma = Math.exp(params[1]);
+        if (sigma <= 0) return 1e30;
+        let ll = 0;
+        const lnSigma = Math.log(sigma);
+        for (let i = 0; i < fEntries.length; i++) {
+          const t = fEntries[i][0];
+          const count = fEntries[i][1];
+          const z = (Math.log(t) - mu) / sigma;
+          ll += count * (-Math.log(t) - lnSigma - 0.5 * (LOG2PI + z * z));
+        }
+        for (let i = 0; i < cEntries.length; i++) {
+          const t = cEntries[i][0];
+          const count = cEntries[i][1];
+          const sfVal = Lognormal.sf(t, mu, sigma);
+          ll += count * Math.log(Math.max(sfVal, 1e-15));
+        }
+        return -ll;
+      };
     }
   };
 
@@ -286,20 +352,47 @@ const Distributions = (() => {
     mttf: (mu, sigma) => mu,
     logLikelihood: (failures, censored, mu, sigma) => {
       if (sigma <= 0) return -Infinity;
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
       let ll = 0;
-      for (const t of failures) {
+      const lnSigma = Math.log(sigma);
+      for (let i = 0; i < fEntries.length; i++) {
+        const t = fEntries[i][0];
+        const count = fEntries[i][1];
         const z = (t - mu) / sigma;
-        ll += -Math.log(sigma) - 0.5 * (LOG2PI + z * z);
+        ll += count * (-lnSigma - 0.5 * (LOG2PI + z * z));
       }
-      for (const t of censored) {
-        ll += Math.log(Normal.sf(t, mu, sigma));
+      for (let i = 0; i < cEntries.length; i++) {
+        const t = cEntries[i][0];
+        const count = cEntries[i][1];
+        const sfVal = Normal.sf(t, mu, sigma);
+        ll += count * Math.log(Math.max(sfVal, 1e-15));
       }
       return ll;
     },
-    negLogLikelihoodLog: (failures, censored) => (params) => {
-      const mu    = params[0];
-      const sigma = Math.exp(params[1]);
-      return -Normal.logLikelihood(failures, censored, mu, sigma);
+    negLogLikelihoodLog: (failures, censored) => {
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
+      return (params) => {
+        const mu = params[0];
+        const sigma = Math.exp(params[1]);
+        if (sigma <= 0) return 1e30;
+        let ll = 0;
+        const lnSigma = Math.log(sigma);
+        for (let i = 0; i < fEntries.length; i++) {
+          const t = fEntries[i][0];
+          const count = fEntries[i][1];
+          const z = (t - mu) / sigma;
+          ll += count * (-lnSigma - 0.5 * (LOG2PI + z * z));
+        }
+        for (let i = 0; i < cEntries.length; i++) {
+          const t = cEntries[i][0];
+          const count = cEntries[i][1];
+          const sfVal = Normal.sf(t, mu, sigma);
+          ll += count * Math.log(Math.max(sfVal, 1e-15));
+        }
+        return -ll;
+      };
     }
   };
 
@@ -329,20 +422,43 @@ const Distributions = (() => {
     mttf: (lambda) => 1 / lambda,
     logLikelihood: (failures, censored, lambda) => {
       if (lambda <= 0) return -Infinity;
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
       let ll = 0;
-      for (const t of failures) {
+      const lnLambda = Math.log(lambda);
+      for (let i = 0; i < fEntries.length; i++) {
+        const t = fEntries[i][0];
+        const count = fEntries[i][1];
         if (t <= 0) return -Infinity;
-        ll += Math.log(lambda) - lambda * t;
+        ll += count * (lnLambda - lambda * t);
       }
-      for (const t of censored) {
-        if (t <= 0) continue;
-        ll -= lambda * t;
+      for (let i = 0; i < cEntries.length; i++) {
+        const t = cEntries[i][0];
+        const count = cEntries[i][1];
+        ll -= count * lambda * t;
       }
       return ll;
     },
-    negLogLikelihoodLog: (failures, censored) => (params) => {
-      const lambda = Math.exp(params[0]);
-      return -Exponential.logLikelihood(failures, censored, lambda);
+    negLogLikelihoodLog: (failures, censored) => {
+      const fEntries = groupData(failures);
+      const cEntries = groupData(censored);
+      return (params) => {
+        const lambda = Math.exp(params[0]);
+        if (lambda <= 0) return 1e30;
+        let ll = 0;
+        const lnLambda = Math.log(lambda);
+        for (let i = 0; i < fEntries.length; i++) {
+          const t = fEntries[i][0];
+          const count = fEntries[i][1];
+          ll += count * (lnLambda - lambda * t);
+        }
+        for (let i = 0; i < cEntries.length; i++) {
+          const t = cEntries[i][0];
+          const count = cEntries[i][1];
+          ll -= count * lambda * t;
+        }
+        return -ll;
+      };
     }
   };
 
