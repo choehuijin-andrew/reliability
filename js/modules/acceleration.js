@@ -335,7 +335,12 @@ const Acceleration = {
             title: "Arrhenius (온도) 모델 레퍼런스 & 검증",
             modelName: "Arrhenius (온도)",
             parameters: [
-                { symbol: "Ea", name: "활성화 에너지 (Activation Energy)", range: "0.3 ~ 1.5 eV", target: "반도체 SiD, 절연막 파괴, 솔더 접합", source: "JEDEC JESD22-A108 / JESD91A", details: "JEDEC 규격 기준 일반 반도체 마모 열화는 0.7 eV, 솔더 접합부 크리프는 0.5~0.8 eV 권장." }
+                { symbol: "Ea = 0.7 eV", name: "반도체 소자 마모", range: "0.6 ~ 0.8 eV", source: "JEDEC JESD91A / MIL-338B", details: "HTOL 설계 시 반도체 소자 고온 마모 수명 평가 기본값" },
+                { symbol: "Ea = 0.9 eV", name: "패키지 알루미늄 부식", range: "0.8 ~ 1.0 eV", source: "JESD22-A110 / Peck(1986)", details: "HAST(고온고습) 시험 시 패키지 수분 유입 및 전극 부식 평가" },
+                { symbol: "Ea = 0.5 eV", name: "솔더 조인트 크리프", range: "0.5 ~ 0.6 eV", source: "IPC-9701A / Meeker", details: "HTSL(고온저장) 시 접합부 IMC 성장 및 피로 수명 단축" },
+                { symbol: "Ea = 0.6 eV", name: "일렉트로마이그레이션", range: "0.5 ~ 0.7 eV", source: "JEDEC JESD63 / Black(1969)", details: "고전류 노출 시 배선 원자 이동으로 인한 보이드 단선 가속" },
+                { symbol: "Ea = 1.0 eV", name: "게이트 산화막 파괴(TDDB)", range: "1.0 ~ 1.4 eV", source: "JEDEC JESD92 / Intel Manual", details: "초미세 절연막(SiO2/High-k)의 열적 내재성 절연 파괴" },
+                { symbol: "Ea = 0.98 eV", name: "콘덴서 수명 열화", range: "0.94 ~ 1.0 eV", source: "MIL-HDBK-217F / 제조사 가이드", details: "10°C 법칙(온도 10°C 상승 시 수명 50% 단축) 경험칙 모사" }
             ],
             verification: {
                 source: "JEDEC JESD22-A108D (Temperature bias stress life test)",
@@ -350,8 +355,9 @@ const Acceleration = {
             title: "Peck (온도+습도) 모델 레퍼런스 & 검증",
             modelName: "Peck (온도+습도)",
             parameters: [
-                { symbol: "Ea", name: "활성화 에너지 (Activation Energy)", range: "0.7 ~ 0.9 eV", target: "에폭시 패키지 부식, HAST", source: "JEDEC JESD22-A110 (HAST)", details: "부식 메커니즘 시험의 경우 Ea = 0.9 eV 가 일반적으로 쓰임." },
-                { symbol: "n", name: "습도 가속 지수 (Humidity Exponent)", range: "2.7 ~ 3.0", target: "에폭시 패키지 부식, 수분 침투", source: "Peck (1986) 'Crucial Role of Humidity...'", details: "Peck의 오리지널 실험 논문 및 JEDEC HAST 규격에선 습도 가속 지수로 n = 3.0을 표준 권장." }
+                { symbol: "Ea = 0.9 eV", name: "수분 부식 활성화 에너지", range: "0.7 ~ 0.9 eV", source: "JESD22-A110 / Peck(1986)", details: "HAST/고온고습 시험 시 부식 화학반응의 온도 가속 요소" },
+                { symbol: "n = 3.0", name: "습도 가속 지수 표준", range: "2.7 ~ 3.0", source: "Peck(1986) / JEDEC JESD91A", details: "에폭시 패키지의 수분 침투 및 전극 부식 표준 가속 상수" },
+                { symbol: "n = 4.0", name: "고습도 민감 부품 가속", range: "3.5 ~ 4.5", source: "NASA-TM-2018-219770", details: "센서류 및 보호막 결함부의 고가속 습도 평가 기준" }
             ],
             verification: {
                 source: "Peck, D. S. (1986) IEEE IRPS 논문 검증 사례",
@@ -366,7 +372,10 @@ const Acceleration = {
             title: "Coffin-Manson (열 사이클) 모델 레퍼런스 & 검증",
             modelName: "Coffin-Manson (열사이클)",
             parameters: [
-                { symbol: "m", name: "코핀-맨슨 지수 (Fatigue Exponent)", range: "1.9 ~ 2.5", target: "솔더 조인트 피로, 금속 배선 피로", source: "IPC-9701A / Coffin (1954)", details: "SnPb 솔더 접합부는 m = 1.9, SAC305 무납 솔더는 m = 2.2~2.5, 알루미늄 와이어는 m = 3.5~4.0 권장." }
+                { symbol: "m = 1.9", name: "유연 솔더 접합부 피로", range: "1.8 ~ 2.0", source: "IPC-9701A / Coffin(1954)", details: "SnPb 솔더 접합부의 CTE 불일치 열피로 수명 기초값" },
+                { symbol: "m = 2.2", name: "무연 솔더 접합부 피로", range: "2.1 ~ 2.5", source: "IPC-9701A / JEDEC JESD91A", details: "무연 솔더(SAC305) 접합부의 열피로 수명 설계 표준값" },
+                { symbol: "m = 3.5", name: "도선 및 와이어 본딩 피로", range: "3.0 ~ 4.0", source: "MIL-338B / NASA Guidelines", details: "IC 본딩 와이어(Al/Au/Cu) 접합부의 열순환 반복 응력 피로 가속" },
+                { symbol: "m = 6.0", name: "유리 및 세라믹 계면 파손", range: "5.0 ~ 8.0", source: "Intel Reliability Report", details: "세라믹 기판 다이 균열 및 유리 밀봉부의 급격한 열피로 파괴" }
             ],
             verification: {
                 source: "IPC-9701A (Performance Test Methods for Solder Attachments)",
@@ -378,10 +387,13 @@ const Acceleration = {
             }
         },
         inverse_power: {
-            title: "Inverse Power Law (전압/전류) 모델 레퍼런스 & 검증",
+            title: "Inverse Power Law (전압/전류/하중) 모델 레퍼런스 & 검증",
             modelName: "Inverse Power Law",
             parameters: [
-                { symbol: "n", name: "스트레스 가속 지수 (Voltage/Stress Exponent)", range: "5.0 ~ 8.0 (전압) / 1.0 ~ 2.0 (전류)", target: "커패시터 유전체 파괴, Black EM", source: "JEDEC JESD92 (TDDB) / JESD63 (EM)", details: "전압 TDDB 고장 시 n = 7.0 수준으로 매우 큰 가속성이 나타나며, Black 공식의 전류 밀도 지수는 n = 1.0~2.0." }
+                { symbol: "n = 8.0", name: "게이트 유전막 절연 파괴", range: "7.0 ~ 9.0", source: "JEDEC JESD92 / Intel Manual", details: "극박막 게이트 산화막(SiO2) 고전압 바이어스 가속 시험용" },
+                { symbol: "n = 1.5", name: "일렉트로마이그레이션 전류", range: "1.0 ~ 2.0", source: "JEDEC JESD63 / Black(1969)", details: "Black EM 공식 전류 지수 (Void 성장 1.5, 줄열 파괴 2.0)" },
+                { symbol: "n = 6.0", name: "세라믹 커패시터 전압 지수", range: "5.0 ~ 8.0", source: "MIL-217F / Murata Tech Bulletin", details: "MLCC 누설 전류 가속 및 수명 보증용 표준 전압 지수" },
+                { symbol: "n = 3.0", name: "볼베어링 동적 하중 가속", range: "3.0", source: "ISO 281 / SKF Guide", details: "회전체 기계적 접촉 피로 수명(L10) 가속 (롤러 베어링: 3.33)" }
             ],
             verification: {
                 source: "JEDEC JESD92 (TDDB Characterization Standard)",
@@ -394,4 +406,3 @@ const Acceleration = {
         }
     }
 };
-

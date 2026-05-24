@@ -147,8 +147,8 @@ function renderAnalysisInputTab() {
                     <button class="btn btn-sm btn-secondary" id="sample-data-toggle"
                         onclick="document.getElementById('sample-data-dropdown').style.display = document.getElementById('sample-data-dropdown').style.display==='block'?'none':'block'"
                         style="font-size:0.72rem;padding:2px 8px;height:24px;line-height:1">📋 예제 데이터 ▾</button>
-                    <div id="sample-data-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:9999;min-width:320px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.6);margin-top:4px">
-                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);background:#1e293b">📌 우측관측중단 (Right Censored)</div>
+                    <div id="sample-data-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:9999;min-width:320px;max-height:400px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);margin-top:4px">
+                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);background:var(--bg-tertiary)">📌 우측관측중단 (Right Censored)</div>
                         <div class="sample-item" onclick="loadSampleData('weibull_basic');closeSampleDropdown()">
                             <div style="font-size:0.82rem;color:var(--text-primary)">Weibull 기본 데이터</div>
                             <div style="font-size:0.7rem;color:var(--text-muted)">20개 고장 데이터, 관측중단 없음</div>
@@ -162,13 +162,13 @@ function renderAnalysisInputTab() {
                             <div style="font-size:0.7rem;color:var(--text-muted)">Meeker & Escobar — 절연 파괴 시험</div>
                         </div>
 
-                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:#1e293b">📌 구간관측중단 (Interval Censored)</div>
+                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:var(--bg-tertiary)">📌 구간관측중단 (Interval Censored)</div>
                         <div class="sample-item" onclick="loadSampleData('interval_censored');closeSampleDropdown()" id="sample-interval-btn">
                             <div style="font-size:0.82rem;color:var(--text-primary)">Alloy-T7987 피로 데이터</div>
                             <div style="font-size:0.7rem;color:var(--text-muted)">Meeker & Escobar — 합금 균열 구간 관측</div>
                         </div>
 
-                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:#1e293b">📌 그룹 비교</div>
+                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:var(--bg-tertiary)">📌 그룹 비교</div>
                         <div class="sample-item" onclick="loadSampleData('grouped');closeSampleDropdown()">
                             <div style="font-size:0.82rem;color:var(--text-primary)">2그룹 비교 데이터</div>
                             <div style="font-size:0.7rem;color:var(--text-muted)">A/B 그룹 비교 — 설계 변경 전후 비교</div>
@@ -178,13 +178,13 @@ function renderAnalysisInputTab() {
             </div>
 
             <!-- 데이터 입력 모드 토글 -->
-            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;background:var(--bg-secondary);border-radius:8px;padding:4px">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;background:var(--bg-tertiary);border-radius:8px;padding:4px">
                 <button id="mode-btn-exact" class="btn btn-sm" onclick="switchDataMode('exact')"
-                    style="flex:1;background:var(--accent-color);color:#fff;font-size:0.78rem">
+                    style="flex:1;background:var(--accent-color);color:var(--accent-contrast);font-size:0.78rem;font-weight:600">
                     ● 우측관측중단 (F/C)
                 </button>
                 <button id="mode-btn-interval" class="btn btn-sm" onclick="switchDataMode('interval')"
-                    style="flex:1;background:transparent;color:var(--text-muted);font-size:0.78rem">
+                    style="flex:1;background:transparent;color:var(--text-muted);font-size:0.78rem;font-weight:600">
                     ◻ 구간 관측중단 (Interval)
                 </button>
             </div>
@@ -252,9 +252,9 @@ function switchDataMode(mode) {
     const hint        = document.getElementById('data-mode-hint');
     if (btnExact) {
         btnExact.style.background    = mode === 'exact' ? 'var(--accent-color)' : 'transparent';
-        btnExact.style.color         = mode === 'exact' ? '#fff' : 'var(--text-muted)';
+        btnExact.style.color         = mode === 'exact' ? 'var(--accent-contrast)' : 'var(--text-muted)';
         btnInterval.style.background = mode === 'interval' ? 'var(--accent-color)' : 'transparent';
-        btnInterval.style.color      = mode === 'interval' ? '#fff' : 'var(--text-muted)';
+        btnInterval.style.color      = mode === 'interval' ? 'var(--accent-contrast)' : 'var(--text-muted)';
     }
     if (hint) {
         if (mode === 'exact') {
@@ -1739,7 +1739,7 @@ function switchPlanningSubTab(subtab) {
 // ── 무고장 보증 / 이항 분포 ──
 function renderReliabilityPlanTab() {
     // 빠른 참조표 데이터 생성 (c=0 무고장 보증)
-    const confLevels = [90, 95, 99];
+    const confLevels = [60, 70, 80, 90, 95];
     const relLevels  = [90, 95, 99, 99.9];
     const quickRefRows = relLevels.map(R => {
         const cells = confLevels.map(C => {
@@ -1802,8 +1802,7 @@ function renderReliabilityPlanTab() {
                                 onmouseover="this.style.background='rgba(56,189,248,0.15)';this.style.color='var(--accent-color)'"
                                 onmouseout="this.style.background='';this.style.color=''"
                                 onclick="quickFillReliability(${c.C},${c.R});runReliabilityPlan()">
-                                <span style="font-size:1.05rem;font-weight:700">${c.n.toLocaleString()}</span><br>
-                                <span style="font-size:0.7rem;color:var(--text-muted)">개</span>
+                                <span style="font-size:1.05rem;font-weight:700">${c.n.toLocaleString()}</span><span style="font-size:0.75rem;color:var(--text-muted);margin-left:2px">개</span>
                             </td>`).join('')}
                         </tr>`).join('')}
                     </tbody>
@@ -2263,7 +2262,7 @@ function renderAQLTab() {
     </div>
 
     <!-- The giant interactive tables -->
-    <div id="aql-tables-container" class="hide-on-mobile">
+    <div id="aql-tables-container">
         <!-- Rendered by runAQL() -->
     </div>
     `;
@@ -2426,7 +2425,10 @@ function runAQL() {
         `;
 
         // DOM 업데이트
-        document.getElementById('aql-tables-container').innerHTML = t1Html + t2Html;
+        const mobileTip = `<div class="show-mobile info-box" style="margin-bottom:1rem; font-size:0.8rem; border-color:var(--accent-glow); color:var(--accent-color);">
+            💡 모바일 기기에서는 하단 테이블을 좌우로 스크롤하여 전체 값을 보실 수 있습니다.
+        </div>`;
+        document.getElementById('aql-tables-container').innerHTML = mobileTip + t1Html + t2Html;
 
     } catch (e) {
         console.error("AQL Error:", e);
@@ -4113,30 +4115,49 @@ function renderDegradationTab() {
                     ${HelpTooltip.labelWithHelp('데이터 (시료ID, 시간, 측정값)', '각 행: 시료ID, 시간, 측정값')}
                     <!-- Handsontable 그리드 -->
                     <div id="degrad-hot-grid" style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden"></div>
-                    <div class="grid-3">
-                        <div>
-                            ${HelpTooltip.labelWithHelp('적합 모델', '수명 예측에 사용할 열화 모델')}
-                            <select id="degrad-model-sel" class="input-field">
-                                <option value="auto">최고 적합 (자동 추천)</option>
-                                <option value="linear">선형 (Linear)</option>
-                                <option value="exponential">지수 (Exponential)</option>
-                                <option value="power">거듭제곱 (Power)</option>
-                                <option value="log">로그 (Logarithmic)</option>
-                                <option value="gompertz">곰페르츠 (Gompertz)</option>
-                                <option value="lloyd">로이드-리포 (Lloyd-Lipow)</option>
-                                <option value="sqrt">제곱근 (Square Root)</option>
-                            </select>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                        <div class="glass-card" style="padding: 0.75rem; border: 1px dashed var(--border-color); margin: 0; background: var(--bg-tertiary);">
+                            <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--warning);">1. 열화 고장 기준 설정</div>
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                <div>
+                                    ${HelpTooltip.labelWithHelp('임계값 (Threshold)', '성능 측정값이 이 값에 도달하면 고장으로 판정')}
+                                    <input type="number" id="degrad-threshold" class="input-field" value="50" step="1" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                </div>
+                                <div>
+                                    ${HelpTooltip.labelWithHelp('열화 방향', '성능 수치가 증가하는 추세인지, 감소하는 추세인지 선택')}
+                                    <select id="degrad-direction" class="input-field" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                        <option value="decreasing">감소 (Decreasing)</option>
+                                        <option value="increasing">증가 (Increasing)</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            ${HelpTooltip.labelWithHelp('임계값 (Threshold)', '열화가 이 값에 도달하면 고장으로 판정')}
-                            <input type="number" id="degrad-threshold" class="input-field" value="50" step="1">
-                        </div>
-                        <div>
-                            ${HelpTooltip.labelWithHelp('열화 방향', '측정값이 증가하면서 열화? 감소하면서 열화?')}
-                            <select id="degrad-direction" class="input-field">
-                                <option value="decreasing">감소 (값이 줄어듦)</option>
-                                <option value="increasing">증가 (값이 늘어남)</option>
-                            </select>
+                        <div class="glass-card" style="padding: 0.75rem; border: 1px dashed var(--border-color); margin: 0; background: var(--bg-tertiary);">
+                            <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--accent-color);">2. 분석 및 피팅 모델 설정</div>
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                <div>
+                                    ${HelpTooltip.labelWithHelp('열화 예측 모델', '성능 측정데이터를 외삽할 수학적 회귀 모델')}
+                                    <select id="degrad-model-sel" class="input-field" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                        <option value="auto">최고 적합 (자동 추천)</option>
+                                        <option value="linear">선형 (Linear)</option>
+                                        <option value="exponential">지수 (Exponential)</option>
+                                        <option value="power">거듭제곱 (Power)</option>
+                                        <option value="log">로그 (Logarithmic)</option>
+                                        <option value="gompertz">곰페르츠 (Gompertz)</option>
+                                        <option value="lloyd">로이드-리포 (Lloyd-Lipow)</option>
+                                        <option value="sqrt">제곱근 (Square Root)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    ${HelpTooltip.labelWithHelp('수명 분포 모델', '각 시료별로 추정된 고장시간들을 피팅할 확률 분포')}
+                                    <select id="degrad-dist-sel" class="input-field" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                        <option value="weibull">Weibull 2P</option>
+                                        <option value="lognormal">Lognormal</option>
+                                        <option value="normal">Normal</option>
+                                        <option value="exponential">Exponential</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <button class="btn btn-primary" style="width:100%;min-height:44px" onclick="runDegradAnalysis()">▶ 분석 실행</button>
@@ -4202,6 +4223,15 @@ function fillDegradSample() {
     }
     document.getElementById('degrad-threshold').value = '50';
     document.getElementById('degrad-direction').value = 'decreasing';
+    runDegradAnalysis();
+}
+
+function selectDegradModel(modelName) {
+    const select = document.getElementById('degrad-model-sel');
+    if (select) {
+        select.value = modelName;
+        runDegradAnalysis();
+    }
 }
 
 function runDegradAnalysis() {
@@ -4210,6 +4240,7 @@ function runDegradAnalysis() {
     const threshold = parseFloat(document.getElementById('degrad-threshold').value);
     const direction = document.getElementById('degrad-direction').value;
     const modelSel = document.getElementById('degrad-model-sel').value;
+    const distSel = document.getElementById('degrad-dist-sel')?.value || 'weibull';
 
     if (!text.trim()) { alert('데이터를 입력하세요.'); return; }
     if (isNaN(threshold)) { alert('임계값을 입력하세요.'); return; }
@@ -4218,7 +4249,7 @@ function runDegradAnalysis() {
     if (data.length < 2) { alert('유효한 데이터가 2개 이상 필요합니다.'); return; }
 
     degradState.rawData = data;
-    degradState.result = DegradationAnalysis.analyze(data, threshold, direction, modelSel);
+    degradState.result = DegradationAnalysis.analyze(data, threshold, direction, modelSel, distSel);
 
     document.getElementById('degrad-result').innerHTML = renderDegradResult();
     setTimeout(drawDegradCharts, 150);
@@ -4229,7 +4260,21 @@ function renderDegradResult() {
     if (!r) return '';
     const s = r.summary;
     const ld = r.lifetimeDist;
-    const dc = { linear: 'var(--accent-color)', sqrt: 'var(--success)', log: 'var(--purple)', power: 'var(--warning)' };
+    const dc = { 
+        linear: 'var(--accent-color)', 
+        sqrt: 'var(--success)', 
+        log: 'var(--purple)', 
+        power: 'var(--warning)', 
+        exponential: 'var(--danger)', 
+        lloyd: '#64748b', 
+        gompertz: '#a855f7' 
+    };
+
+    let betaMsg = '';
+    if (ld && ld.distType === 'weibull') {
+        const interp = Distributions.interpretBeta(ld.param2);
+        betaMsg = `<div class="info-box" style="margin-top: 0.5rem; font-size: 0.8rem; border-color: var(--accent-glow); color: var(--accent-color);">${interp.message}</div>`;
+    }
 
     return `
     <div class="grid-4" style="margin-bottom:1rem">
@@ -4238,44 +4283,66 @@ function renderDegradResult() {
         <div class="stat-card"><div class="label">중앙 수명</div><div class="value" style="color:var(--accent-color)">${s.medianLifetime ? s.medianLifetime.toFixed(1) : '-'}</div></div>
         <div class="stat-card"><div class="label">평균 수명</div><div class="value" style="color:var(--success)">${s.meanLifetime ? s.meanLifetime.toFixed(1) : '-'}</div></div>
     </div>
+    
     <div class="glass-card" style="margin-bottom:1rem">
-        <h3 class="section-title">열화 경로</h3>
-        <div class="chart-container" style="height:300px"><canvas id="degrad-path-chart"></canvas></div>
+        <h3 class="section-title">열화 경로 및 예측선</h3>
+        <div class="chart-container" style="height:320px"><canvas id="degrad-path-chart"></canvas></div>
     </div>
+    
     <div class="glass-card" style="margin-bottom:1rem">
-        <h3 class="section-title">시료별 추정 수명</h3>
+        <h3 class="section-title">글로벌 모델 비교 (전체 데이터)</h3>
+        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.5rem">💡 행을 클릭하면 해당 열화 예측 모델로 수명이 즉시 재계산됩니다.</div>
         <div class="table-wrapper"><table><thead><tr>
-            <th class="table-header">시료</th><th class="table-header">최적 모델</th><th class="table-header">R²</th><th class="table-header">추정 수명</th>
+            <th class="table-header">최적</th>
+            <th class="table-header">모델</th>
+            <th class="table-header">절편 (a)</th>
+            <th class="table-header">기울기 (b)</th>
+            <th class="table-header">지수 (p / c)</th>
+            <th class="table-header">결정계수 (R²)</th>
+        </tr></thead><tbody>${r.globalModels.map(m => {
+            const bg = m.best ? 'rgba(56,189,248,0.06)' : 'transparent';
+            return `<tr onclick="selectDegradModel('${m.model}')" 
+                style="cursor:pointer; background:${bg}; transition: background 0.2s;" 
+                onmouseover="this.style.background='rgba(56,189,248,0.15)'" 
+                onmouseout="this.style.background='${bg}'"
+                class="hover-row-effect">
+                <td class="table-cell">${m.best?'<span class="badge badge-info">✓ 최적</span>':''}</td>
+                <td class="table-cell" style="color:${dc[m.model]||'var(--text-primary)'};font-weight:${m.best?'700':'400'}">${m.label}</td>
+                <td class="table-cell">${m.a.toFixed(4)}</td>
+                <td class="table-cell">${m.b.toFixed(6)}</td>
+                <td class="table-cell">${m.c !== undefined ? m.c.toFixed(2) : (m.p !== undefined ? m.p.toFixed(2) : '-')}</td>
+                <td class="table-cell" style="font-weight:600;color:var(--accent-color)">${m.r2.toFixed(6)}</td>
+            </tr>`;
+        }).join('')}</tbody></table></div>
+    </div>
+    
+    <div class="glass-card" style="margin-bottom:1rem">
+        <h3 class="section-title">시료별 추정 수명 (고장 기준 도달 시간)</h3>
+        <div class="table-wrapper"><table><thead><tr>
+            <th class="table-header">시료</th><th class="table-header">개별 최적 모델</th><th class="table-header">R²</th><th class="table-header">추정 수명 (Failure Time)</th>
         </tr></thead><tbody>${r.units.map(u => `<tr>
             <td class="table-cell" style="font-weight:600">${u.id}</td>
             <td class="table-cell" style="color:${dc[u.bestModel?.model]||'var(--text-primary)'}">${u.bestModel?.label || '-'}</td>
             <td class="table-cell">${u.bestModel?.r2 !== undefined ? u.bestModel.r2.toFixed(4) : '-'}</td>
-            <td class="table-cell" style="color:var(--accent-color);font-weight:600">${u.lifetime !== null ? u.lifetime.toFixed(1) : '∞'}</td>
+            <td class="table-cell" style="color:var(--accent-color);font-weight:600">${u.lifetime !== null ? u.lifetime.toFixed(1) : '∞ (미도달)'}</td>
         </tr>`).join('')}</tbody></table></div>
     </div>
+    
     ${r.lifetimes.length >= 3 ? `
     <div class="glass-card" style="margin-bottom:1rem">
-        <h3 class="section-title">추정 수명 분포</h3>
-        <div class="chart-container" style="height:220px"><canvas id="degrad-lifetime-chart"></canvas></div>
-        ${ld ? `<div class="grid-4" style="margin-top:0.75rem">
-            <div class="stat-card"><div class="label">분포</div><div class="value" style="font-size:1rem">${ld.distribution}</div></div>
-            <div class="stat-card"><div class="label">β (형상)</div><div class="value" style="font-size:1.1rem">${ld.beta.toFixed(4)}</div></div>
-            <div class="stat-card"><div class="label">η (척도)</div><div class="value" style="font-size:1.1rem">${ld.eta.toFixed(2)}</div></div>
-            <div class="stat-card"><div class="label">B10</div><div class="value" style="font-size:1.1rem;color:var(--accent-color)">${ld.b10.toFixed(2)}</div></div>
-        </div>` : ''}
-    </div>` : ''}
-    <div class="glass-card">
-        <h3 class="section-title">글로벌 모델 비교 (전체 데이터)</h3>
-        <div class="table-wrapper"><table><thead><tr>
-            <th class="table-header"></th><th class="table-header">모델</th><th class="table-header">a</th><th class="table-header">b</th><th class="table-header">R²</th>
-        </tr></thead><tbody>${r.globalModels.map(m => `<tr style="background:${m.best?'rgba(56,189,248,0.08)':'transparent'}">
-            <td class="table-cell">${m.best?'<span class="badge badge-info">✓ 최적</span>':''}</td>
-            <td class="table-cell" style="color:${dc[m.model]||'var(--text-primary)'};font-weight:${m.best?'700':'400'}">${m.label}</td>
-            <td class="table-cell">${m.a.toFixed(4)}</td>
-            <td class="table-cell">${m.b.toFixed(6)}</td>
-            <td class="table-cell" style="font-weight:600">${m.r2.toFixed(6)}</td>
-        </tr>`).join('')}</tbody></table></div>
-    </div>`;
+        <h3 class="section-title">추정 수명 분포 (Life Distribution Fitting)</h3>
+        <div class="chart-container" style="height:250px"><canvas id="degrad-lifetime-chart"></canvas></div>
+        ${ld ? `
+        <div class="grid-4" style="margin-top:0.75rem">
+            <div class="stat-card"><div class="label">분포</div><div class="value" style="font-size:0.95rem;color:var(--accent-color)">${ld.distribution}</div></div>
+            <div class="stat-card"><div class="label">${ld.param1Label}</div><div class="value" style="font-size:1.1rem">${ld.param1.toFixed(4)}</div></div>
+            <div class="stat-card"><div class="label">${ld.param2Label ? ld.param2Label : '-'}</div><div class="value" style="font-size:1.1rem">${ld.param2 !== null ? ld.param2.toFixed(4) : '-'}</div></div>
+            <div class="stat-card"><div class="label">B10 수명</div><div class="value" style="font-size:1.1rem;color:var(--danger)">${ld.b10.toFixed(2)}</div></div>
+        </div>
+        ${betaMsg}
+        ` : ''}
+    </div>` : `<div class="glass-card empty-state" style="margin-bottom:1rem"><div style="font-weight:600;color:var(--text-secondary)">분포 피팅 불가</div><div style="font-size:0.8rem;color:var(--text-muted)">수명이 유한한 값으로 추정된 시료가 최소 3개 이상 필요합니다.</div></div>`}
+    `;
 }
 
 function drawDegradCharts() {
@@ -4330,44 +4397,51 @@ function drawDegradCharts() {
         fill: false,
     });
 
-    const ctx = document.getElementById('degrad-path-chart');
-    if (ctx) {
-        ChartManager.destroy('degrad-path-chart');
-        const chart = new Chart(ctx, {
-            type: 'scatter',
-            data: { datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: true, labels: { color: '#94a3b8', font: { size: 11 }, filter: item => !item.text.endsWith(' fit') }},
-                },
-                scales: {
-                    x: { type: 'linear', title: { display: true, text: '시간', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' }},
-                    y: { title: { display: true, text: '측정값', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' }},
-                },
+    ChartManager.createOrUpdate('degrad-path-chart', {
+        type: 'scatter',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, labels: { font: { size: 11 }, filter: item => !item.text.endsWith(' fit') }},
             },
-        });
-        ChartManager._charts['degrad-path-chart'] = chart;
-    }
+            scales: {
+                x: { type: 'linear', title: { display: true, text: '시간' } },
+                y: { type: 'linear', title: { display: true, text: '측정값' } },
+            },
+        },
+    });
 
     // 추정 수명 분포 차트
     if (r.lifetimes.length >= 3 && r.lifetimeDist) {
         const ld = r.lifetimeDist;
         const D = Distributions;
         const ltMax = Math.max(...r.lifetimes) * 1.5;
-        const xVals = Array.from({ length: 100 }, (_, i) => ltMax * (i + 1) / 100);
-        const cdfVals = xVals.map(t => D.Weibull.cdf(t, ld.eta, ld.beta));
-
+        
+        const dataPoints = [];
+        for (let i = 0; i <= 100; i++) {
+            const t = (ltMax * i) / 100;
+            let cdfVal = 0;
+            if (ld.distType === 'weibull') {
+                cdfVal = D.Weibull.cdf(t, ld.param1, ld.param2);
+            } else if (ld.distType === 'lognormal') {
+                cdfVal = D.Lognormal.cdf(t, ld.param1, ld.param2);
+            } else if (ld.distType === 'normal') {
+                cdfVal = D.Normal.cdf(t, ld.param1, ld.param2);
+            } else if (ld.distType === 'exponential') {
+                cdfVal = D.Exponential.cdf(t, ld.param1);
+            }
+            dataPoints.push({ x: t, y: cdfVal });
+        }
 
         ChartManager.createOrUpdate('degrad-lifetime-chart', {
             type: 'line',
             data: {
-                labels: xVals.map(v => v.toFixed(0)),
                 datasets: [
                     {
-                        label: 'F(t) 추정 수명 분포',
-                        data: cdfVals,
+                        label: `F(t) 추정 수명 분포 (${ld.distribution})`,
+                        data: dataPoints,
                         borderColor: CONSTANTS.CHART_COLORS.danger,
                         backgroundColor: 'rgba(239,68,68,0.08)',
                         fill: true,
@@ -4382,7 +4456,7 @@ function drawDegradCharts() {
                 maintainAspectRatio: false,
                 plugins: { legend: { display: true, position: 'top' } },
                 scales: {
-                    x: { title: { display: true, text: '추정 수명' }, ticks: { maxTicksLimit: 12 } },
+                    x: { type: 'linear', title: { display: true, text: '추정 수명' } },
                     y: { title: { display: true, text: 'F(t)' }, min: 0, max: 1, ticks: { callback: v => (v*100).toFixed(0) + '%' } },
                 }
             }
@@ -4445,13 +4519,71 @@ function updateThemeButtonUI(theme) {
 // ═══════════════════════════════════════════
 // 앱 초기화
 // ═══════════════════════════════════════════
+function initGlobalEnterKeyHandler() {
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            const target = e.target;
+            if (target && target.tagName === 'INPUT') {
+                const id = target.id || '';
+                let triggered = false;
+
+                if (id.startsWith('rel-')) {
+                    e.preventDefault();
+                    if (typeof runReliabilityPlan === 'function') { runReliabilityPlan(); triggered = true; }
+                } else if (id.startsWith('ltpd-')) {
+                    e.preventDefault();
+                    if (typeof runLTPD === 'function') { runLTPD(); triggered = true; }
+                } else if (id.startsWith('wbx-')) {
+                    e.preventDefault();
+                    if (typeof runWeibullBx === 'function') { runWeibullBx(); triggered = true; }
+                } else if (id.startsWith('ltfr-')) {
+                    e.preventDefault();
+                    if (typeof runLTFR === 'function') { runLTFR(); triggered = true; }
+                } else if (id.startsWith('aql-')) {
+                    e.preventDefault();
+                    if (typeof runAQL === 'function') { runAQL(); triggered = true; }
+                } else if (id.startsWith('acc-')) {
+                    e.preventDefault();
+                    if (typeof runAcceleration === 'function') { runAcceleration(); triggered = true; }
+                } else if (id.startsWith('analysis-')) {
+                    e.preventDefault();
+                    if (typeof runAnalysis === 'function') { runAnalysis(); triggered = true; }
+                } else if (id.startsWith('warranty-')) {
+                    e.preventDefault();
+                    if (typeof runWarrantyPreprocess === 'function') { runWarrantyPreprocess(); triggered = true; }
+                } else if (id.startsWith('fc-')) {
+                    e.preventDefault();
+                    if (typeof runWarrantyForecast === 'function') { runWarrantyForecast(); triggered = true; }
+                } else if (id.startsWith('degrad-')) {
+                    e.preventDefault();
+                    if (typeof runDegradAnalysis === 'function') { runDegradAnalysis(); triggered = true; }
+                }
+
+                if (!triggered) {
+                    const card = target.closest('.glass-card');
+                    if (card) {
+                        const btn = card.querySelector('button.btn-primary') || card.querySelector('button.btn');
+                        if (btn) {
+                            e.preventDefault();
+                            btn.click();
+                            triggered = true;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initTheme();
+        initGlobalEnterKeyHandler();
         switchTab('planning');
     });
 } else {
     initTheme();
+    initGlobalEnterKeyHandler();
     switchTab('planning');
 }
 
@@ -4500,30 +4632,25 @@ function openAccReferenceModal(modelType) {
             <h4 style="margin-top:1.25rem;margin-bottom:0.75rem;font-size:0.95rem;color:var(--text-primary);font-weight:600;display:flex;align-items:center">
                 <i class="fas fa-bookmark" style="margin-right:0.5rem;color:var(--warning)"></i>1. 표준 가속 파라미터 레퍼런스
             </h4>
-            <div class="table-wrapper" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:0.5rem;margin-bottom:1.75rem">
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;text-align:left;min-width:600px">
+            <div class="table-wrapper" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:0.5rem;margin-bottom:1.75rem;overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;text-align:left;min-width:780px">
                     <thead>
                         <tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600">기호</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600">파라미터명</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600">권장 범위</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600">주요 대상</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600">규격/논문 근거</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:12%">기호</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:20%">고장 현상</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:12%">권장 범위</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:18%">근거 규격·논문</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:38%">상세 가이드</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${data.parameters.map(p => `
-                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-                                <td style="padding:0.75rem 0.6rem;font-weight:bold;color:var(--warning);font-size:0.95rem">${p.symbol}</td>
-                                <td style="padding:0.75rem 0.6rem">${p.name}</td>
-                                <td style="padding:0.75rem 0.6rem;color:var(--accent-color);font-weight:500">${p.range}</td>
-                                <td style="padding:0.75rem 0.6rem;font-size:0.8rem">${p.target}</td>
-                                <td style="padding:0.75rem 0.6rem;font-size:0.8rem;color:var(--text-secondary)"><strong>${p.source}</strong></td>
-                            </tr>
-                            <tr>
-                                <td colspan="5" style="padding:0.6rem 0.75rem 0.75rem 0.75rem;font-size:0.82rem;color:var(--text-secondary);background:rgba(56,189,248,0.02);border-radius:4px;border-left:3px solid var(--accent-color);line-height:1.4">
-                                    💡 <strong>상세 근거 및 가이드:</strong> ${p.details}
-                                </td>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05)" onmouseover="this.style.background='rgba(56,189,248,0.02)'" onmouseout="this.style.background='transparent'">
+                                <td style="padding:0.75rem 0.6rem;font-weight:bold;color:var(--warning);font-size:0.85rem;white-space:nowrap">${p.symbol}</td>
+                                <td style="padding:0.75rem 0.6rem;color:var(--text-primary);font-weight:500;word-break:keep-all">${p.name}</td>
+                                <td style="padding:0.75rem 0.6rem;color:var(--accent-color);font-weight:600;white-space:nowrap">${p.range}</td>
+                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);word-break:keep-all"><strong>${p.source}</strong></td>
+                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);line-height:1.4;word-break:keep-all">${p.details}</td>
                             </tr>
                         `).join('')}
                     </tbody>

@@ -226,7 +226,7 @@ const DegradationAnalysis = {
      * 시료 그룹별 열화 분석 수행
      * Returns: { units, models, lifetimes, lifetimeDist }
      */
-    analyze(data, threshold, direction = 'increasing', selectedModel = 'auto') {
+    analyze(data, threshold, direction = 'increasing', selectedModel = 'auto', lifetimeDistModel = 'weibull') {
         const groups = this.groupByUnit(data);
         const unitIds = Object.keys(groups);
 
@@ -272,19 +272,48 @@ const DegradationAnalysis = {
             }
         }
 
-        // 추정 수명 분포 적합 (Weibull MLE)
+        // 추정 수명 분포 적합 (MLE)
         let lifetimeDist = null;
         if (lifetimes.length >= 3) {
             try {
                 const D = Distributions;
-                const alphaInit = Math.exp(lifetimes.reduce((s,t) => s + Math.log(t), 0) / lifetimes.length);
-                const negLL = D.Weibull.negLogLikelihoodLog(lifetimes, []);
-                const res = MathEngine.nelderMead(negLL, [Math.log(alphaInit), Math.log(1.5)]);
-                const eta = Math.exp(res.x[0]);
-                const beta = Math.exp(res.x[1]);
-                const mttf = D.Weibull.mttf(eta, beta);
-                const b10 = eta * Math.pow(-Math.log(0.9), 1 / beta);
-                lifetimeDist = { distribution: 'Weibull 2P', beta, eta, mttf, b10 };
+                if (lifetimeDistModel === 'weibull') {
+                    const alphaInit = Math.exp(lifetimes.reduce((s,t) => s + Math.log(t), 0) / lifetimes.length);
+                    const negLL = D.Weibull.negLogLikelihoodLog(lifetimes, []);
+                    const res = MathEngine.nelderMead(negLL, [Math.log(alphaInit), Math.log(1.5)]);
+                    const eta = Math.exp(res.x[0]);
+                    const beta = Math.exp(res.x[1]);
+                    const mttf = D.Weibull.mttf(eta, beta);
+                    const b10 = D.Weibull.quantile(0.1, eta, beta);
+                    lifetimeDist = { distribution: 'Weibull 2P', param1Label: 'η (척도)', param1: eta, param2Label: 'β (형상)', param2: beta, mttf, b10, distType: 'weibull' };
+                } else if (lifetimeDistModel === 'lognormal') {
+                    const logTs  = lifetimes.map(t => Math.log(t));
+                    const muInit = logTs.reduce((s, v) => s + v, 0) / logTs.length;
+                    const sigmaInit = Math.sqrt(logTs.reduce((s, v) => s + (v - muInit) ** 2, 0) / logTs.length) || 0.5;
+                    const negLL = D.Lognormal.negLogLikelihoodLog(lifetimes, []);
+                    const res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+                    const mu    = res.x[0];
+                    const sigma = Math.exp(res.x[1]);
+                    const mttf = D.Lognormal.mttf(mu, sigma);
+                    const b10 = D.Lognormal.quantile(0.1, mu, sigma);
+                    lifetimeDist = { distribution: 'Lognormal', param1Label: 'μ (로그평균)', param1: mu, param2Label: 'σ (로그표준편차)', param2: sigma, mttf, b10, distType: 'lognormal' };
+                } else if (lifetimeDistModel === 'normal') {
+                    const muInit    = lifetimes.reduce((s, v) => s + v, 0) / lifetimes.length;
+                    const sigmaInit = Math.sqrt(lifetimes.reduce((s, v) => s + (v - muInit) ** 2, 0) / lifetimes.length) || muInit * 0.3;
+                    const negLL = D.Normal.negLogLikelihoodLog(lifetimes, []);
+                    const res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+                    const mu    = res.x[0];
+                    const sigma = Math.exp(res.x[1]);
+                    const mttf = D.Normal.mttf(mu, sigma);
+                    const b10 = D.Normal.quantile(0.1, mu, sigma);
+                    lifetimeDist = { distribution: 'Normal', param1Label: 'μ (평균)', param1: mu, param2Label: 'σ (표준편차)', param2: sigma, mttf, b10, distType: 'normal' };
+                } else if (lifetimeDistModel === 'exponential') {
+                    const lambdaInit = lifetimes.length / lifetimes.reduce((s, t) => s + t, 0);
+                    const lambda = lambdaInit;
+                    const mttf = D.Exponential.mttf(lambda);
+                    const b10 = D.Exponential.quantile(0.1, lambda);
+                    lifetimeDist = { distribution: 'Exponential', param1Label: 'λ (고장률)', param1: lambda, param2Label: null, param2: null, mttf, b10, distType: 'exponential' };
+                }
             } catch (e) {
                 console.warn('Degradation: Lifetime dist fit failed:', e.message);
             }
@@ -306,7 +335,7 @@ const DegradationAnalysis = {
                 nPoints: allPoints.length,
                 nLifetimesEstimated: lifetimes.length,
                 medianLifetime: lifetimes.length > 0 ?
-                    lifetimes.sort((a,b) => a - b)[Math.floor(lifetimes.length / 2)] : null,
+                    lifetimes.slice().sort((a,b) => a - b)[Math.floor(lifetimes.length / 2)] : null,
                 meanLifetime: lifetimes.length > 0 ?
                     lifetimes.reduce((s,v) => s + v, 0) / lifetimes.length : null,
             }
@@ -318,17 +347,28 @@ const DegradationAnalysis = {
      */
     predict(fit, modelType, tMax, nPoints = 100) {
         const points = [];
+        const tStart = (modelType === 'log' || modelType === 'lloyd') ? tMax / nPoints : 0;
+        
         for (let i = 0; i <= nPoints; i++) {
-            const t = (tMax * i) / nPoints;
-            let gVal;
-            switch (modelType) {
-                case 'linear': gVal = t; break;
-                case 'sqrt':   gVal = Math.sqrt(t); break;
-                case 'log':    gVal = Math.log(Math.max(t, 1e-10)); break;
-                case 'power':  gVal = Math.pow(Math.max(t, 1e-10), fit.p || 1); break;
-                default:       gVal = t;
+            const t = tStart + ((tMax - tStart) * i) / nPoints;
+            let val;
+            if (modelType === 'exponential') {
+                val = Math.exp(fit.a + fit.b * t);
+            } else if (modelType === 'gompertz') {
+                val = Math.exp(fit.a + fit.b * Math.pow(fit.c, t));
+            } else {
+                let gVal;
+                switch (modelType) {
+                    case 'linear': gVal = t; break;
+                    case 'sqrt':   gVal = Math.sqrt(t); break;
+                    case 'log':    gVal = Math.log(Math.max(t, 1e-10)); break;
+                    case 'power':  gVal = Math.pow(Math.max(t, 1e-10), fit.p || 1); break;
+                    case 'lloyd':  gVal = 1 / Math.max(t, 1e-10); break;
+                    default:       gVal = t;
+                }
+                val = fit.a + fit.b * gVal;
             }
-            points.push({ time: t, value: fit.a + fit.b * gVal });
+            points.push({ time: t, value: val });
         }
         return points;
     },

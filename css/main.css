@@ -986,3 +986,16 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   }
 }
 
+@media (max-width: 768px) {
+  .app-header {
+    position: relative;
+    padding-right: 90px;
+  }
+  .header-right {
+    position: absolute;
+    top: 1rem;
+    right: 0.5rem;
+    margin: 0;
+  }
+}
+
