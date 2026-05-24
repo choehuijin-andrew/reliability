@@ -10,7 +10,29 @@ let accelerationState = {
     n: 22,
     confidence: 90,
     bx: 1,
-    testTime: 1000
+    testTime: 1000,
+
+    // 모델별 파라미터 저장소 (기입 값 유지용)
+    tUse: 25,
+    tStress: 85,
+    ea: 0.7,
+    rhUse: 50,
+    rhStress: 85,
+    nPeck: 3,
+    dtUse: 20,
+    dtStress: 100,
+    m: 2,
+    vUse: 5,
+    vStress: 12,
+    nPower: 2,
+    eyringB: 0,
+    eyringSUse: 1,
+    eyringSStress: 5,
+    fUse: 1,
+    fStress: 3,
+    nlTmaxUse: 50,
+    nlTmaxStress: 125,
+    nlEa: 0.123
 };
 
 
@@ -905,12 +927,18 @@ function drawAllAnalysisCharts() {
         const xList = xDataList || r.plotData.x;
         const upperPts = [], lowerPts = [];
         for (let i = 0; i < xList.length; i++) {
-            if (isFinite(yUpper[i]) && yUpper[i] >= 0) upperPts.push({ x: xList[i], y: yUpper[i] });
-            if (isFinite(yLower[i]) && yLower[i] >= 0) lowerPts.push({ x: xList[i], y: yLower[i] });
+            let yu = yUpper[i];
+            let yl = yLower[i];
+            if (!isFinite(yu) || isNaN(yu)) yu = 0;
+            if (!isFinite(yl) || isNaN(yl)) yl = 0;
+            yu = Math.max(0, yu);
+            yl = Math.max(0, yl);
+            upperPts.push({ x: xList[i], y: yu });
+            lowerPts.push({ x: xList[i], y: yl });
         }
         return [
-            { label: 'Upper CI', data: upperPts, borderColor: 'transparent', backgroundColor: 'transparent', fill: false, pointRadius: 0 },
-            { label: 'Lower CI', data: lowerPts, borderColor: 'transparent', backgroundColor: color + '25', fill: '-1', pointRadius: 0 }
+            { label: 'Upper CI', data: upperPts, borderColor: color + '40', borderWidth: 1.2, borderDash: [4, 4], backgroundColor: 'transparent', fill: false, pointRadius: 0, tension: 0.3 },
+            { label: 'Lower CI', data: lowerPts, borderColor: color + '40', borderWidth: 1.2, borderDash: [4, 4], backgroundColor: color + '12', fill: '-1', pointRadius: 0, tension: 0.3 }
         ];
     }
 
@@ -2470,16 +2498,19 @@ function renderAccelerationTab() {
 }
 
 function renderArrheniusInputs() {
+    const tUse = accelerationState.tUse;
+    const tStress = accelerationState.tStress;
+    const ea = accelerationState.ea;
     return `
         ${HelpTooltip.labelWithHelp('사용 조건 온도', '제품이 실제 사용되는 환경 온도')}
         <div class="input-with-unit">
-            <input type="number" id="acc-t-use" value="25" step="1">
+            <input type="number" id="acc-t-use" value="${tUse}" step="1">
             <span class="input-unit">°C</span>
         </div>
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('가속 조건 온도', '가속 시험에서 적용할 스트레스 온도')}
         <div class="input-with-unit">
-            <input type="number" id="acc-t-stress" value="85" step="1">
+            <input type="number" id="acc-t-stress" value="${tStress}" step="1">
             <span class="input-unit">°C</span>
         </div>
         </div>
@@ -2491,18 +2522,18 @@ function renderArrheniusInputs() {
             </span>
         </div>
         <div class="input-with-unit">
-            <input type="number" id="acc-ea" value="0.7" min="0.01" max="3" step="0.01">
+            <input type="number" id="acc-ea" value="${ea}" min="0.01" max="3" step="0.01">
             <span class="input-unit">eV</span>
         </div>
         </div>`;
 }
 
 function renderAccTestInputs() {
-    const beta   = accelerationState.beta;
-    const tLife  = accelerationState.targetLife;
-    const nVal   = accelerationState.n;
-    const conf   = accelerationState.confidence;
-    const bxVal  = accelerationState.bx;
+    const beta = accelerationState.beta;
+    const conf = accelerationState.confidence;
+    const bxVal = accelerationState.bx;
+    const tLife = accelerationState.targetLife;
+    const nVal = accelerationState.n;
 
     const HT = HelpTooltip;
     return `
@@ -2528,7 +2559,7 @@ function renderAccTestInputs() {
                 </div>
             </div>
             <div>
-                ${HT.labelWithHelp('목표 보증 수명', '')}
+                ${HT.labelWithHelp('목표 보증 수명', '목표 수명 시간')}
                 <div class="input-with-unit">
                     <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
                     <span class="input-unit">시간</span>
@@ -2537,7 +2568,7 @@ function renderAccTestInputs() {
         </div>
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
-                ${HT.labelWithHelp('시료 수 (n)', '')}
+                ${HT.labelWithHelp('시료 수 (n)', '시험에 투입되는 샘플 수')}
                 <div class="input-with-unit">
                     <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
                     <span class="input-unit">개</span>
@@ -2548,6 +2579,8 @@ function renderAccTestInputs() {
 }
 
 function updateAccModelInputs() {
+    saveCurrentAccInputs();
+
     const model = document.getElementById('acc-model').value;
     const container = document.getElementById('acc-model-inputs');
 
@@ -2566,18 +2599,21 @@ function updateAccModelInputs() {
 }
 
 function renderPeckInputs() {
+    const rhUse = accelerationState.rhUse;
+    const rhStress = accelerationState.rhStress;
+    const nPeck = accelerationState.nPeck;
     return renderArrheniusInputs() + `
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('사용 환경 습도', '')}
         <div class="input-with-unit">
-            <input type="number" id="acc-rh-use" value="50" min="1" max="100" step="1">
+            <input type="number" id="acc-rh-use" value="${rhUse}" min="1" max="100" step="1">
             <span class="input-unit">%RH</span>
         </div>
         </div>
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('가속 조건 습도', '')}
         <div class="input-with-unit">
-            <input type="number" id="acc-rh-stress" value="85" min="1" max="100" step="1">
+            <input type="number" id="acc-rh-stress" value="${rhStress}" min="1" max="100" step="1">
             <span class="input-unit">%RH</span>
         </div>
         </div>
@@ -2588,21 +2624,24 @@ function renderPeckInputs() {
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-n-peck" value="3" min="0.1" step="0.1">
+        <input type="number" id="acc-n-peck" value="${nPeck}" min="0.1" step="0.1">
         </div>`;
 }
 
 function renderCMInputs() {
+    const dtUse = accelerationState.dtUse;
+    const dtStress = accelerationState.dtStress;
+    const m = accelerationState.m;
     return `
         ${HelpTooltip.labelWithHelp('사용 환경 ΔT', '사용 환경에서의 온도 변화 범위')}
         <div class="input-with-unit">
-            <input type="number" id="acc-dt-use" value="20" min="1" step="1">
+            <input type="number" id="acc-dt-use" value="${dtUse}" min="1" step="1">
             <span class="input-unit">°C</span>
         </div>
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('가속 조건 ΔT', '가속 시험에서의 온도 변화 범위')}
         <div class="input-with-unit">
-            <input type="number" id="acc-dt-stress" value="100" min="1" step="1">
+            <input type="number" id="acc-dt-stress" value="${dtStress}" min="1" step="1">
             <span class="input-unit">°C</span>
         </div>
         </div>
@@ -2613,17 +2652,20 @@ function renderCMInputs() {
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-m" value="2" min="0.1" step="0.1">
+        <input type="number" id="acc-m" value="${m}" min="0.1" step="0.1">
         </div>`;
 }
 
 function renderIPInputs() {
+    const vUse = accelerationState.vUse;
+    const vStress = accelerationState.vStress;
+    const nPower = accelerationState.nPower;
     return `
         ${HelpTooltip.labelWithHelp('사용 스트레스', '사용 환경의 스트레스 레벨 (전압, 전류 등)')}
-        <input type="number" id="acc-v-use" value="5" min="0.01" step="0.1">
+        <input type="number" id="acc-v-use" value="${vUse}" min="0.01" step="0.1">
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('가속 스트레스', '가속 시험의 스트레스 레벨')}
-        <input type="number" id="acc-v-stress" value="12" min="0.01" step="0.1">
+        <input type="number" id="acc-v-stress" value="${vStress}" min="0.01" step="0.1">
         </div>
         <div style="margin-top:0.75rem">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2632,52 +2674,60 @@ function renderIPInputs() {
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-n-power" value="2" min="0.1" step="0.1">
+        <input type="number" id="acc-n-power" value="${nPower}" min="0.1" step="0.1">
         </div>`;
 }
 
 function renderEyringInputs() {
+    const eyringB = accelerationState.eyringB;
+    const eyringSUse = accelerationState.eyringSUse;
+    const eyringSStress = accelerationState.eyringSStress;
     return renderArrheniusInputs() + `
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('비열 스트레스 계수 (B)', 'Eyring 모델의 2차 스트레스 파라미터.<br>0이면 순수 Arrhenius와 동일')}
-        <input type="number" id="acc-eyring-b" value="0" step="0.01">
+        <input type="number" id="acc-eyring-b" value="${eyringB}" step="0.01">
         </div>
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
                 ${HelpTooltip.labelWithHelp('사용 스트레스 (S_use)', '비열 스트레스 사용 수준')}
-                <input type="number" id="acc-eyring-s-use" value="1" min="0" step="0.1">
+                <input type="number" id="acc-eyring-s-use" value="${eyringSUse}" min="0" step="0.1">
             </div>
             <div>
                 ${HelpTooltip.labelWithHelp('가속 스트레스 (S_stress)', '비열 스트레스 가속 수준')}
-                <input type="number" id="acc-eyring-s-stress" value="5" min="0" step="0.1">
+                <input type="number" id="acc-eyring-s-stress" value="${eyringSStress}" min="0" step="0.1">
             </div>
         </div>`;
 }
 
 function renderNLInputs() {
+    const fUse = accelerationState.fUse;
+    const fStress = accelerationState.fStress;
+    const nlTmaxUse = accelerationState.nlTmaxUse;
+    const nlTmaxStress = accelerationState.nlTmaxStress;
+    const nlEa = accelerationState.nlEa;
     return renderCMInputs() + `
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
                 ${HelpTooltip.labelWithHelp('사용 주파수 (f_use)', '사용 환경에서의 사이클 주파수 (cycles/day)')}
-                <input type="number" id="acc-f-use" value="1" min="0.01" step="0.1">
+                <input type="number" id="acc-f-use" value="${fUse}" min="0.01" step="0.1">
             </div>
             <div>
                 ${HelpTooltip.labelWithHelp('가속 주파수 (f_stress)', '가속 시험 사이클 주파수')}
-                <input type="number" id="acc-f-stress" value="3" min="0.01" step="0.1">
+                <input type="number" id="acc-f-stress" value="${fStress}" min="0.01" step="0.1">
             </div>
         </div>
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
                 ${HelpTooltip.labelWithHelp('사용 최고온도', 'Tmax 사용')}
                 <div class="input-with-unit">
-                    <input type="number" id="acc-nl-tmax-use" value="50" step="1">
+                    <input type="number" id="acc-nl-tmax-use" value="${nlTmaxUse}" step="1">
                     <span class="input-unit">°C</span>
                 </div>
             </div>
             <div>
                 ${HelpTooltip.labelWithHelp('가속 최고온도', 'Tmax 가속')}
                 <div class="input-with-unit">
-                    <input type="number" id="acc-nl-tmax-stress" value="125" step="1">
+                    <input type="number" id="acc-nl-tmax-stress" value="${nlTmaxStress}" step="1">
                     <span class="input-unit">°C</span>
                 </div>
             </div>
@@ -2685,62 +2735,32 @@ function renderNLInputs() {
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea)', 'NL 모델 Ea, 일반: 0.123 eV')}
         <div class="input-with-unit">
-            <input type="number" id="acc-nl-ea" value="0.123" min="0.01" step="0.01">
+            <input type="number" id="acc-nl-ea" value="${nlEa}" min="0.01" step="0.01">
             <span class="input-unit">eV</span>
         </div>
         </div>`;
 }
 
 function renderCombinedInputs() {
+    const vUse = accelerationState.vUse;
+    const vStress = accelerationState.vStress;
+    const nPower = accelerationState.nPower;
     return renderArrheniusInputs() + `
         <div class="divider" style="margin-top:1rem">전압/전류 스트레스</div>
         ${HelpTooltip.labelWithHelp('사용 스트레스', '')}
-        <input type="number" id="acc-v-use" value="5" min="0.01" step="0.1">
+        <input type="number" id="acc-v-use" value="${vUse}" min="0.01" step="0.1">
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('가속 스트레스', '')}
-        <input type="number" id="acc-v-stress" value="12" min="0.01" step="0.1">
+        <input type="number" id="acc-v-stress" value="${vStress}" min="0.01" step="0.1">
         </div>
         <div style="margin-top:0.75rem">
         ${HelpTooltip.labelWithHelp('역거듭제곱 지수 (n)', '')}
-        <input type="number" id="acc-n-power" value="2" min="0.1" step="0.1">
+        <input type="number" id="acc-n-power" value="${nPower}" min="0.1" step="0.1">
         </div>`;
 }
 
-function resetAccInputs() {
-    accelerationState = {
-        beta: 2,
-        targetLife: 20000,
-        n: 22,
-        confidence: 90,
-        bx: 1,
-        testTime: 1000
-    };
-    updateAccModelInputs();
-    const goal = document.querySelector('input[name="acc-goal"]:checked')?.value || 'test_time';
-    renderAccGoalInputs(goal);
-}
-
-function selectRadio(el, groupId) {
-    document.querySelectorAll(`#${groupId} .radio-option`).forEach(o => o.classList.remove('selected'));
-    el.classList.add('selected');
-    el.querySelector('input').checked = true;
-    // 가속 계산 목표 변경 시 파라미터 동적 업데이트
-    if (groupId === 'acc-goal') {
-        const goal = el.querySelector('input').value;
-        renderAccGoalInputs(goal);
-        // 계산 목표 변경 후 인풋 렌더링이 끝난 시점에 자동 계산 실행
-        setTimeout(() => {
-            try { runAcceleration(); } catch(e) {}
-        }, 100);
-    }
-}
-
-// 가속 시험 목표별 동적 입력 필드 렌더
-function renderAccGoalInputs(goal) {
-    const container = document.getElementById('acc-test-inputs');
-    if (!container) return;
-
-    // DOM에 존재하면 최신 값으로 state 갱신
+function saveCurrentAccInputs() {
+    // 공통 파라미터 저장
     if (document.getElementById('acc-beta')) {
         const val = parseFloat(document.getElementById('acc-beta').value);
         if (!isNaN(val)) accelerationState.beta = val;
@@ -2766,6 +2786,155 @@ function renderAccGoalInputs(goal) {
         if (!isNaN(val)) accelerationState.testTime = val;
     }
 
+    // 모델별 파라미터 저장
+    if (document.getElementById('acc-t-use')) {
+        const val = parseFloat(document.getElementById('acc-t-use').value);
+        if (!isNaN(val)) accelerationState.tUse = val;
+    }
+    if (document.getElementById('acc-t-stress')) {
+        const val = parseFloat(document.getElementById('acc-t-stress').value);
+        if (!isNaN(val)) accelerationState.tStress = val;
+    }
+    if (document.getElementById('acc-ea')) {
+        const val = parseFloat(document.getElementById('acc-ea').value);
+        if (!isNaN(val)) accelerationState.ea = val;
+    }
+    if (document.getElementById('acc-rh-use')) {
+        const val = parseFloat(document.getElementById('acc-rh-use').value);
+        if (!isNaN(val)) accelerationState.rhUse = val;
+    }
+    if (document.getElementById('acc-rh-stress')) {
+        const val = parseFloat(document.getElementById('acc-rh-stress').value);
+        if (!isNaN(val)) accelerationState.rhStress = val;
+    }
+    if (document.getElementById('acc-n-peck')) {
+        const val = parseFloat(document.getElementById('acc-n-peck').value);
+        if (!isNaN(val)) accelerationState.nPeck = val;
+    }
+    if (document.getElementById('acc-dt-use')) {
+        const val = parseFloat(document.getElementById('acc-dt-use').value);
+        if (!isNaN(val)) accelerationState.dtUse = val;
+    }
+    if (document.getElementById('acc-dt-stress')) {
+        const val = parseFloat(document.getElementById('acc-dt-stress').value);
+        if (!isNaN(val)) accelerationState.dtStress = val;
+    }
+    if (document.getElementById('acc-m')) {
+        const val = parseFloat(document.getElementById('acc-m').value);
+        if (!isNaN(val)) accelerationState.m = val;
+    }
+    if (document.getElementById('acc-v-use')) {
+        const val = parseFloat(document.getElementById('acc-v-use').value);
+        if (!isNaN(val)) accelerationState.vUse = val;
+    }
+    if (document.getElementById('acc-v-stress')) {
+        const val = parseFloat(document.getElementById('acc-v-stress').value);
+        if (!isNaN(val)) accelerationState.vStress = val;
+    }
+    if (document.getElementById('acc-n-power')) {
+        const val = parseFloat(document.getElementById('acc-n-power').value);
+        if (!isNaN(val)) accelerationState.nPower = val;
+    }
+    if (document.getElementById('acc-eyring-b')) {
+        const val = parseFloat(document.getElementById('acc-eyring-b').value);
+        if (!isNaN(val)) accelerationState.eyringB = val;
+    }
+    if (document.getElementById('acc-eyring-s-use')) {
+        const val = parseFloat(document.getElementById('acc-eyring-s-use').value);
+        if (!isNaN(val)) accelerationState.eyringSUse = val;
+    }
+    if (document.getElementById('acc-eyring-s-stress')) {
+        const val = parseFloat(document.getElementById('acc-eyring-s-stress').value);
+        if (!isNaN(val)) accelerationState.eyringSStress = val;
+    }
+    if (document.getElementById('acc-f-use')) {
+        const val = parseFloat(document.getElementById('acc-f-use').value);
+        if (!isNaN(val)) accelerationState.fUse = val;
+    }
+    if (document.getElementById('acc-f-stress')) {
+        const val = parseFloat(document.getElementById('acc-f-stress').value);
+        if (!isNaN(val)) accelerationState.fStress = val;
+    }
+    if (document.getElementById('acc-nl-tmax-use')) {
+        const val = parseFloat(document.getElementById('acc-nl-tmax-use').value);
+        if (!isNaN(val)) accelerationState.nlTmaxUse = val;
+    }
+    if (document.getElementById('acc-nl-tmax-stress')) {
+        const val = parseFloat(document.getElementById('acc-nl-tmax-stress').value);
+        if (!isNaN(val)) accelerationState.nlTmaxStress = val;
+    }
+    if (document.getElementById('acc-nl-ea')) {
+        const val = parseFloat(document.getElementById('acc-nl-ea').value);
+        if (!isNaN(val)) accelerationState.nlEa = val;
+    }
+}
+
+function resetAccInputs() {
+    accelerationState = {
+        beta: 2,
+        targetLife: 20000,
+        n: 22,
+        confidence: 90,
+        bx: 1,
+        testTime: 1000,
+        tUse: 25,
+        tStress: 85,
+        ea: 0.7,
+        rhUse: 50,
+        rhStress: 85,
+        nPeck: 3,
+        dtUse: 20,
+        dtStress: 100,
+        m: 2,
+        vUse: 5,
+        vStress: 12,
+        nPower: 2,
+        eyringB: 0,
+        eyringSUse: 1,
+        eyringSStress: 5,
+        fUse: 1,
+        fStress: 3,
+        nlTmaxUse: 50,
+        nlTmaxStress: 125,
+        nlEa: 0.123
+    };
+    updateAccModelInputs();
+    const goal = document.querySelector('input[name="acc-goal"]:checked')?.value || 'test_time';
+    renderAccGoalInputs(goal);
+}
+
+function selectRadio(el, groupId) {
+    const radio = el.querySelector('input');
+    if (radio.dataset.lastChecked === "true" && el.classList.contains('selected')) {
+        return;
+    }
+
+    saveCurrentAccInputs();
+
+    document.querySelectorAll(`#${groupId} .radio-option`).forEach(o => {
+        o.classList.remove('selected');
+        const input = o.querySelector('input');
+        if (input) input.dataset.lastChecked = "false";
+    });
+    el.classList.add('selected');
+    radio.checked = true;
+    radio.dataset.lastChecked = "true";
+
+    if (groupId === 'acc-goal') {
+        const goal = radio.value;
+        renderAccGoalInputs(goal);
+        setTimeout(() => {
+            try { runAcceleration(); } catch(e) {}
+        }, 100);
+    }
+}
+
+function renderAccGoalInputs(goal) {
+    const container = document.getElementById('acc-test-inputs');
+    if (!container) return;
+
+    saveCurrentAccInputs();
+
     const beta   = accelerationState.beta;
     const tLife  = accelerationState.targetLife;
     const nVal   = accelerationState.n;
@@ -2774,102 +2943,57 @@ function renderAccGoalInputs(goal) {
     const tTest  = accelerationState.testTime;
 
     const HT = HelpTooltip;
+
+    let row2col2Html = '';
+    if (goal === 'test_time' || goal === 'sample_size') {
+        row2col2Html = `
+            ${HT.labelWithHelp('목표 보증 수명', '목표 수명 시간')}
+            <div class="input-with-unit">
+                <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
+                <span class="input-unit">시간</span>
+            </div>`;
+    }
+
+    let row3col1Html = '';
+    if (goal === 'test_time' || goal === 'life') {
+        row3col1Html = `
+            ${HT.labelWithHelp('시료 수 (n)', '시험에 투입되는 샘플 수')}
+            <div class="input-with-unit">
+                <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
+                <span class="input-unit">개</span>
+            </div>`;
+    }
+
+    let row3col2Html = '';
+    if (goal === 'sample_size' || goal === 'life') {
+        row3col2Html = `
+            ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 시간')}
+            <div class="input-with-unit">
+                <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
+                <span class="input-unit">시간</span>
+            </div>`;
+    }
+
+    let infoBoxHtml = '';
     if (goal === 'test_time') {
-        // 필요 시험 시간 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시료수(n)
-        container.innerHTML = `
+        infoBoxHtml = `
         <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
             필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시료수(n)</strong> → 필요 시험시간 계산
-        </div>
-        <div class="grid-2">
-            <div>
-                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
-                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
-            </div>
-            <div>
-                ${HT.labelWithHelp('신뢰 수준 (C)', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-confidence" value="${conf}" min="50" max="99.99" step="1">
-                    <span class="input-unit">%</span>
-                </div>
-            </div>
-        </div>
-        <div class="grid-2" style="margin-top:0.75rem">
-            <div>
-                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
-                    <span class="input-unit">%</span>
-                </div>
-            </div>
-            <div>
-                ${HT.labelWithHelp('목표 보증 수명', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
-            </div>
-        </div>
-        <div class="grid-2" style="margin-top:0.75rem">
-            <div>
-                ${HT.labelWithHelp('시료 수 (n)', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
-                    <span class="input-unit">개</span>
-                </div>
-            </div>
-            <div></div>
         </div>`;
     } else if (goal === 'sample_size') {
-        // 필요 시료 수 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시험시간
-        container.innerHTML = `
+        infoBoxHtml = `
         <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
             필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 목표보증수명, 시험시간</strong> → 필요 시료수 계산
-        </div>
-        <div class="grid-2">
-            <div>
-                ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
-                <input type="number" id="acc-beta" value="${beta}" min="0.1" step="0.1">
-            </div>
-            <div>
-                ${HT.labelWithHelp('신뢰 수준 (C)', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-confidence" value="${conf}" min="50" max="99.99" step="1">
-                    <span class="input-unit">%</span>
-                </div>
-            </div>
-        </div>
-        <div class="grid-2" style="margin-top:0.75rem">
-            <div>
-                ${HT.labelWithHelp('목표 고장률 (Bx)', '예: B1=1%, B5=5%, B10=10%')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-bx" value="${bxVal}" min="0.1" max="50" step="0.1">
-                    <span class="input-unit">%</span>
-                </div>
-            </div>
-            <div>
-                ${HT.labelWithHelp('목표 보증 수명', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-target-life" value="${tLife}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
-            </div>
-        </div>
-        <div class="grid-2" style="margin-top:0.75rem">
-            <div>
-                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 지속 시간')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
-            </div>
-            <div></div>
         </div>`;
     } else if (goal === 'life') {
-        // 인정 수명 계산: 형상모수(β), 신뢰수준(C), 목표고장률(Bx), 시료수(n), 시험시간
-        container.innerHTML = `
+        infoBoxHtml = `
         <div class="info-box" style="font-size:0.8rem;margin-bottom:0.75rem">
             필요 입력: <strong>형상모수(β), 신뢰수준(C), 목표고장률(Bx), 시료수(n), 시험시간</strong> → 인정 Bx 수명 계산
-        </div>
+        </div>`;
+    }
+
+    container.innerHTML = `
+        ${infoBoxHtml}
         <div class="grid-2">
             <div>
                 ${HT.labelWithHelp('형상 모수 (β)', 'Weibull 형상 모수.<br>β&lt;1: 초기고장<br>β≈1: 우발고장<br>β&gt;1: 마모고장')}
@@ -2892,24 +3016,17 @@ function renderAccGoalInputs(goal) {
                 </div>
             </div>
             <div>
-                ${HT.labelWithHelp('시료 수 (n)', '')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-n" value="${nVal}" min="1" step="1">
-                    <span class="input-unit">개</span>
-                </div>
+                ${row2col2Html}
             </div>
         </div>
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
-                ${HT.labelWithHelp('시험 시간 (Tₛ)', '가속 조건에서의 실제 시험 시간')}
-                <div class="input-with-unit">
-                    <input type="number" id="acc-test-time" value="${tTest}" min="1" step="100">
-                    <span class="input-unit">시간</span>
-                </div>
+                ${row3col1Html}
             </div>
-            <div></div>
+            <div>
+                ${row3col2Html}
+            </div>
         </div>`;
-    }
 }
 
 function runAcceleration() {
@@ -3023,7 +3140,7 @@ function runAcceleration() {
         afParams = { ea, n: nPower, tUse, tStress, vUse, vStress };
     }
 
-    const formulaResult = Acceleration.getGeneralFormula(modelLabel, afFormulaStr, af, beta, nSample, targetLife, confidence, bx, goal, tTestUser);
+    const formulaResult = Acceleration.getGeneralFormula(model, afParams, af, beta, nSample, targetLife, confidence, bx, goal, tTestUser);
     const tradeoff = Acceleration.calcTradeoff(af, beta, targetLife, 1 - bx/100, confidence/100);
     const afVsStress = Acceleration.generateAFvsStress(model, afParams);
     renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, nSample, targetLife, bx, goal, model, afVsStress, afParams);
@@ -3836,12 +3953,18 @@ function drawWarrantyDistributionCharts() {
         const xList = pd.x;
         const upperPts = [], lowerPts = [];
         for (let i = 0; i < xList.length; i++) {
-            if (isFinite(yUpper[i]) && yUpper[i] >= 0) upperPts.push({ x: xList[i], y: yUpper[i] });
-            if (isFinite(yLower[i]) && yLower[i] >= 0) lowerPts.push({ x: xList[i], y: yLower[i] });
+            let yu = yUpper[i];
+            let yl = yLower[i];
+            if (!isFinite(yu) || isNaN(yu)) yu = 0;
+            if (!isFinite(yl) || isNaN(yl)) yl = 0;
+            yu = Math.max(0, yu);
+            yl = Math.max(0, yl);
+            upperPts.push({ x: xList[i], y: yu });
+            lowerPts.push({ x: xList[i], y: yl });
         }
         return [
-            { label: 'Upper CI', data: upperPts, borderColor: 'transparent', backgroundColor: 'transparent', fill: false, pointRadius: 0 },
-            { label: 'Lower CI', data: lowerPts, borderColor: 'transparent', backgroundColor: color + '25', fill: '-1', pointRadius: 0 }
+            { label: 'Upper CI', data: upperPts, borderColor: color + '40', borderWidth: 1.2, borderDash: [4, 4], backgroundColor: 'transparent', fill: false, pointRadius: 0, tension: 0.3 },
+            { label: 'Lower CI', data: lowerPts, borderColor: color + '40', borderWidth: 1.2, borderDash: [4, 4], backgroundColor: color + '12', fill: '-1', pointRadius: 0, tension: 0.3 }
         ];
     }
 

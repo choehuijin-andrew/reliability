@@ -353,6 +353,10 @@ body {
   border-bottom-color: var(--accent-color);
 }
 
+/* ═══ Tab Labels ═══ */
+.tab-label-mobile { display: none; }
+.tab-label-desktop { display: inline; }
+
 /* ═══ Mobile Navigation Override ═══ */
 .mobile-bottom-nav { display: none !important; }
 
@@ -366,9 +370,18 @@ body {
     border-bottom: 2px solid var(--border-color);
   }
   .tab-btn {
-    padding: 0.5rem 0.85rem;
-    font-size: 0.85rem;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.82rem;
     min-height: 40px;
+  }
+  .tab-btn svg {
+    display: none !important;
+  }
+  .tab-label-desktop {
+    display: none !important;
+  }
+  .tab-label-mobile {
+    display: inline !important;
   }
 }
 
@@ -796,6 +809,8 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   border-radius: var(--card-radius-sm);
   padding: 1.25rem;
   margin-top: 1rem;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .formula-section h4 {
@@ -809,10 +824,18 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   font-size: 0.88rem;
   color: var(--text-secondary);
   line-height: 1.8;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .formula-step .katex {
   font-size: 1.1em;
+}
+
+.katex-display {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  max-width: 100% !important;
 }
 
 .formula-highlight {

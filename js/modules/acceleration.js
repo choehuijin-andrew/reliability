@@ -84,14 +84,138 @@ const Acceleration = {
         return data;
     },
 
-    // ─── 아레니우스 계산 과정 수식 ───
-    getGeneralFormula(modelLabel, afFormulaStr, af, beta, n, targetLife, confidence, targetBx, goal, tTestUser) {
+    // ─── 가속 모델 및 보증수명 계산 과정 수식 상세 생성 ───
+    getGeneralFormula(model, afParams, af, beta, n, targetLife, confidence, targetBx, goal, tTestUser) {
         const C = confidence / 100;
         const bxFraction = targetBx / 100;
         let steps = '';
 
-        // 1. AF 계산
-        steps += FormulaRenderer.step(`1. 가속 계수 (AF) 계산 - ${modelLabel}`, afFormulaStr);
+        // 1. AF 계산 상세 단계 생성
+        let afFormulaStr = '';
+        let modelLabel = '';
+        const k = this.K; // 8.617333e-5
+        
+        if (model === 'arrhenius') {
+            modelLabel = 'Arrhenius (온도)';
+            const { ea, tUse, tStress } = afParams;
+            const Tu = tUse + 273.15;
+            const Ts = tStress + 273.15;
+            const tempDiff = (1 / Tu) - (1 / Ts);
+            const eaOverK = ea / k;
+            const exponent = eaOverK * tempDiff;
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{Arr} &= \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right] \\\\
+            &= \\exp\\left[ \\frac{${ea}\\text{ eV}}{8.6173 \\times 10^{-5}\\text{ eV/K}} \\left( \\frac{1}{${tUse}\\text{°C} + 273.15} - \\frac{1}{${tStress}\\text{°C} + 273.15} \\right) \\right] \\\\
+            &= \\exp\\left[ ${eaOverK.toFixed(2)}\\text{ K} \\left( \\frac{1}{${Tu.toFixed(2)}\\text{ K}} - \\frac{1}{${Ts.toFixed(2)}\\text{ K}} \\right) \\right] \\\\
+            &= \\exp\\left[ ${eaOverK.toFixed(2)} \\left( ${tempDiff.toExponential(6)} \\right) \\right] \\\\
+            &= \\exp\\left[ ${exponent.toFixed(6)} \\right] = ${af.toFixed(4)}
+            \\end{aligned}`;
+        } else if (model === 'peck') {
+            modelLabel = 'Peck (온도+습도)';
+            const { ea, nPeck, tUse, rhUse, tStress, rhStress } = afParams;
+            const Tu = tUse + 273.15;
+            const Ts = tStress + 273.15;
+            const tempDiff = (1 / Tu) - (1 / Ts);
+            const eaOverK = ea / k;
+            const exponent = eaOverK * tempDiff;
+            const afT = Math.exp(exponent);
+            const rhRatio = rhStress / rhUse;
+            const afRH = Math.pow(rhRatio, nPeck);
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{Peck} &= \\left( \\frac{RH_{stress}}{RH_{use}} \\right)^n \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right] \\\\
+            &= \\left( \\frac{${rhStress}\\%}{${rhUse}\\%} \\right)^{${nPeck}} \\exp\\left[ \\frac{${ea}}{8.6173 \\times 10^{-5}} \\left( \\frac{1}{${tUse} + 273.15} - \\frac{1}{${tStress} + 273.15} \\right) \\right] \\\\
+            &= \\left( ${rhRatio.toFixed(4)} \\right)^{${nPeck}} \\times \\exp\\left[ ${eaOverK.toFixed(2)} \\left( \\frac{1}{${Tu.toFixed(2)}} - \\frac{1}{${Ts.toFixed(2)}} \\right) \\right] \\\\
+            &= ${afRH.toFixed(4)} \\times \\exp\\left[ ${exponent.toFixed(6)} \\right] \\\\
+            &= ${afRH.toFixed(4)} \\times ${afT.toFixed(4)} = ${af.toFixed(4)}
+            \\end{aligned}`;
+        } else if (model === 'coffin_manson') {
+            modelLabel = 'Coffin-Manson (열사이클)';
+            const { m, dtUse, dtStress } = afParams;
+            const ratio = dtStress / dtUse;
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{CM} &= \\left( \\frac{\\Delta T_{stress}}{\\Delta T_{use}} \\right)^m \\\\
+            &= \\left( \\frac{${dtStress}\\text{°C}}{${dtUse}\\text{°C}} \\right)^{${m}} \\\\
+            &= \\left( ${ratio.toFixed(4)} \\right)^{${m}} = ${af.toFixed(4)}
+            \\end{aligned}`;
+        } else if (model === 'inverse_power') {
+            modelLabel = 'Inverse Power Law (역거듭제곱)';
+            const { n: nPower, vUse, vStress } = afParams;
+            const ratio = vStress / vUse;
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{IPL} &= \\left( \\frac{V_{stress}}{V_{use}} \\right)^n \\\\
+            &= \\left( \\frac{${vStress}}{${vUse}} \\right)^{${nPower}} \\\\
+            &= \\left( ${ratio.toFixed(4)} \\right)^{${nPower}} = ${af.toFixed(4)}
+            \\end{aligned}`;
+        } else if (model === 'eyring') {
+            modelLabel = 'Eyring (온도+비열)';
+            const { ea, tUse, tStress, b, sUse, sStress } = afParams;
+            const Tu = tUse + 273.15;
+            const Ts = tStress + 273.15;
+            const tempDiff = (1 / Tu) - (1 / Ts);
+            const eaOverK = ea / k;
+            const tRatio = Tu / Ts;
+            const afT = Math.exp(eaOverK * tempDiff);
+            const stressDiff = sStress - sUse;
+            const stressTermVal = Math.exp(b * stressDiff);
+            
+            if (b !== 0 && sUse > 0 && sStress > 0) {
+                afFormulaStr = `\\begin{aligned}
+                AF_{Eyring} &= \\left( \\frac{T_{use}}{T_{stress}} \\right) \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right] \\exp\\left[ B (S_{stress} - S_{use}) \\right] \\\\
+                &= \\left( \\frac{${Tu.toFixed(2)}}{${Ts.toFixed(2)}} \\right) \\exp\\left[ ${eaOverK.toFixed(2)} \\left( \\frac{1}{${Tu.toFixed(2)}} - \\frac{1}{${Ts.toFixed(2)}} \\right) \\right] \\exp\\left[ ${b} \\times (${sStress} - ${sUse}) \\right] \\\\
+                &= ${tRatio.toFixed(4)} \\times ${afT.toFixed(4)} \\times \\exp\\left[ ${(b * stressDiff).toFixed(4)} \\right] \\\\
+                &= ${tRatio.toFixed(4)} \\times ${afT.toFixed(4)} \\times ${stressTermVal.toFixed(4)} = ${af.toFixed(4)}
+                \\end{aligned}`;
+            } else {
+                afFormulaStr = `\\begin{aligned}
+                AF_{Eyring} &= \\left( \\frac{T_{use}}{T_{stress}} \\right) \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right] \\\\
+                &= \\left( \\frac{${Tu.toFixed(2)}}{${Ts.toFixed(2)}} \\right) \\exp\\left[ ${eaOverK.toFixed(2)} \\left( \\frac{1}{${Tu.toFixed(2)}} - \\frac{1}{${Ts.toFixed(2)}} \\right) \\right] \\\\
+                &= ${tRatio.toFixed(4)} \\times ${afT.toFixed(4)} = ${af.toFixed(4)}
+                \\end{aligned}`;
+            }
+        } else if (model === 'norris_landzberg') {
+            modelLabel = 'Norris-Landzberg';
+            const { m, fUse, fStress, dtUse, dtStress, tMaxUse, tMaxStress, ea } = afParams;
+            const TuMax = tMaxUse + 273.15;
+            const TsMax = tMaxStress + 273.15;
+            const tempDiff = (1 / TuMax) - (1 / TsMax);
+            const eaOverK = ea / k;
+            
+            const afFreq = Math.pow(fUse / fStress, 0.33);
+            const afDt = Math.pow(dtStress / dtUse, m);
+            const afT = Math.exp(eaOverK * tempDiff);
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{NL} &= \\left( \\frac{f_{use}}{f_{stress}} \\right)^{0.33} \\left( \\frac{\\Delta T_{stress}}{\\Delta T_{use}} \\right)^m \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{max,use}} - \\frac{1}{T_{max,stress}} \\right) \\right] \\\\
+            &= \\left( \\frac{${fUse}}{${fStress}} \\right)^{0.33} \\left( \\frac{${dtStress}}{${dtUse}} \\right)^{${m}} \\exp\\left[ \\frac{${ea}}{8.6173 \\times 10^{-5}} \\left( \\frac{1}{${tMaxUse} + 273.15} - \\frac{1}{${tMaxStress} + 273.15} \\right) \\right] \\\\
+            &= \\left( ${(fUse/fStress).toFixed(4)} \\right)^{0.33} \\times \\left( ${(dtStress/dtUse).toFixed(4)} \\right)^{${m}} \\times \\exp\\left[ ${eaOverK.toFixed(2)} \\left( \\frac{1}{${TuMax.toFixed(2)}} - \\frac{1}{${TsMax.toFixed(2)}} \\right) \\right] \\\\
+            &= ${afFreq.toFixed(4)} \\times ${afDt.toFixed(4)} \\times \\exp\\left[ ${(eaOverK * tempDiff).toFixed(6)} \\right] \\\\
+            &= ${afFreq.toFixed(4)} \\times ${afDt.toFixed(4)} \\times ${afT.toFixed(4)} = ${af.toFixed(4)}
+            \\end{aligned}`;
+        } else if (model === 'arrhenius_power') {
+            modelLabel = '복합 (Arrhenius × IPL)';
+            const { ea, n: nPower, tUse, tStress, vUse, vStress } = afParams;
+            const Tu = tUse + 273.15;
+            const Ts = tStress + 273.15;
+            const tempDiff = (1 / Tu) - (1 / Ts);
+            const eaOverK = ea / k;
+            
+            const afT = Math.exp(eaOverK * tempDiff);
+            const afV = Math.pow(vStress / vUse, nPower);
+            
+            afFormulaStr = `\\begin{aligned}
+            AF_{combo} &= AF_{Arr} \\times AF_{IPL} \\\\
+            &= \\exp\\left[ \\frac{E_a}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right] \\times \\left( \\frac{V_{stress}}{V_{use}} \\right)^n \\\\
+            &= \\exp\\left[ \\frac{${ea}}{8.6173 \\times 10^{-5}} \\left( \\frac{1}{${tUse} + 273.15} - \\frac{1}{${tStress} + 273.15} \\right) \\right] \\times \\left( \\frac{${vStress}}{${vUse}} \\right)^{${nPower}} \\\\
+            &= \\exp\\left[ ${eaOverK.toFixed(2)} \\left( \\frac{1}{${Tu.toFixed(2)}} - \\frac{1}{${Ts.toFixed(2)}} \\right) \\right] \\times \\left( ${(vStress/vUse).toFixed(4)} \\right)^{${nPower}} \\\\
+            &= ${afT.toFixed(4)} \\times ${afV.toFixed(4)} = ${af.toFixed(4)}
+            \\end{aligned}`;
+        }
+
+        steps += FormulaRenderer.step(`1. 가속 계수 (AF) 상세 계산 과정 - ${modelLabel}`, afFormulaStr);
 
         const chi2 = jStat.chisquare.inv(C, 2);
         
@@ -102,19 +226,19 @@ const Acceleration = {
             const tTestFinal = Math.max(1, Math.round(tTest));
 
             steps += FormulaRenderer.step('2. 필요 시험 시간(t_{test}) 계산',
-                `t_{test} = \\frac{1}{AF} \\left( \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2n} \\right)^{1/\\beta} = \\frac{1}{${af.toFixed(2)}} \\left( \\frac{${chi2.toFixed(3)} \\cdot ${Math.round(etaUseReq)}^${beta}}{2 \\cdot ${n}} \\right)^{1/${beta}} = ${tTestFinal}`
+                `t_{test} = \\frac{1}{AF} \\left( \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2n} \\right)^{1/\\beta} = \\frac{1}{${af.toFixed(4)}} \\left( \\frac{${chi2.toFixed(4)} \\cdot ${Math.round(etaUseReq).toLocaleString()}^${beta}}{2 \\cdot ${n}} \\right)^{1/${beta}} = ${tTestFinal.toLocaleString()}\\text{시간}`
             );
 
             // 3. 척도모수
             const etaUse = Math.pow((2 * Math.pow(tTestFinal * af, beta) * Math.max(n, 1)) / chi2, 1 / beta);
             steps += FormulaRenderer.step('3. 최종 척도모수(\\eta_{use}) 계산',
-                `\\eta_{use} = \\left( \\frac{2 n \\cdot (t_{test} \\cdot AF)^{\\beta}}{\\chi^2} \\right)^{1/\\beta} = \\left( \\frac{2 \\cdot ${n} \\cdot (${tTestFinal} \\cdot ${af.toFixed(2)})^${beta}}{${chi2.toFixed(3)}} \\right)^{1/${beta}} = ${Math.round(etaUse)}`
+                `\\eta_{use} = \\left( \\frac{2 n \\cdot (t_{test} \\cdot AF)^{\\beta}}{\\chi^2} \\right)^{1/\\beta} = \\left( \\frac{2 \\cdot ${n} \\cdot (${tTestFinal} \\cdot ${af.toFixed(4)})^${beta}}{${chi2.toFixed(4)}} \\right)^{1/${beta}} = ${Math.round(etaUse).toLocaleString()}\\text{시간}`
             );
 
             // 4. 보증 수명
             const bxLife = etaUse * Math.pow(-Math.log(1 - bxFraction), 1 / beta);
-            steps += FormulaRenderer.step('4. 보증 수명(B_x Life) 계산',
-                `B_x = \\eta_{use} \\cdot [-\\ln(1-F_x)]^{1/\\beta} = ${Math.round(etaUse)} \\cdot [-\\ln(1-${bxFraction})]^{1/${beta}} = ${Math.round(bxLife)}`
+            steps += FormulaRenderer.step(`4. 보증 수명(B_{${targetBx}} Life) 계산`,
+                `B_{${targetBx}} = \\eta_{use} \\cdot [-\\ln(1-F_x)]^{1/\\beta} = ${Math.round(etaUse).toLocaleString()} \\cdot [-\\ln(1-${bxFraction})]^{1/${beta}} = ${Math.round(bxLife).toLocaleString()}\\text{시간}`
             );
         } else if (goal === 'sample_size') {
             const etaUseReq = targetLife / Math.pow(-Math.log(1 - bxFraction), 1 / beta);
@@ -122,20 +246,20 @@ const Acceleration = {
             const den = 2 * Math.pow(tTestUser * af, beta);
             const nReq = Math.ceil(num / den);
             
-            steps += FormulaRenderer.step('2. 목표 척도모수(\\eta_{use,req}) 계산',
-                `\\eta_{use,req} = \\frac{B_x}{[-\\ln(1-F_x)]^{1/\\beta}} = \\frac{${targetLife}}{[-\\ln(1-${bxFraction})]^{1/${beta}}} = ${Math.round(etaUseReq)}`
+            steps += FormulaRenderer.step(`2. 목표 척도모수(\\eta_{use,req}) 계산 (B_{${targetBx}} = ${targetLife.toLocaleString()}\\text{시간})`,
+                `\\eta_{use,req} = \\frac{B_x}{[-\\ln(1-F_x)]^{1/\\beta}} = \\frac{${targetLife}}{[-\\ln(1-${bxFraction})]^{1/${beta}}} = ${Math.round(etaUseReq).toLocaleString()}\\text{시간}`
             );
             steps += FormulaRenderer.step('3. 필요 시료 수(n) 계산',
-                `n_{req} = \\lceil \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2 (t_{test} \\cdot AF)^{\\beta}} \\rceil = \\lceil \\frac{${chi2.toFixed(3)} \\cdot ${Math.round(etaUseReq)}^${beta}}{2 \\cdot (${tTestUser} \\cdot ${af.toFixed(2)})^${beta}} \\rceil = ${nReq}`
+                `n_{req} = \\lceil \\frac{\\chi^2 \\cdot \\eta_{use,req}^{\\beta}}{2 (t_{test} \\cdot AF)^{\\beta}} \\rceil = \\lceil \\frac{${chi2.toFixed(4)} \\cdot ${Math.round(etaUseReq).toLocaleString()}^${beta}}{2 \\cdot (${tTestUser} \\cdot ${af.toFixed(4)})^${beta}} \\rceil = ${nReq}\\text{개}`
             );
         } else if (goal === 'life') {
             const certifiedLife = af * tTestUser * Math.pow(-Math.log(1 - bxFraction), 1/beta) / Math.pow(chi2/(2 * Math.max(n, 1)), 1/beta);
-            steps += FormulaRenderer.step('2. 보증 가능 수명(B_x) 계산',
-                `B_{x,cert} = \\frac{AF \\cdot t_{test} \\cdot [-\\ln(1-F_x)]^{1/\\beta}}{(\\chi^2 / 2n)^{1/\\beta}} = \\frac{${af.toFixed(2)} \\cdot ${tTestUser} \\cdot [-\\ln(1-${bxFraction})]^{1/${beta}}}{(${chi2.toFixed(3)} / ${2*n})^{1/${beta}}} = ${Math.round(certifiedLife)}`
+            steps += FormulaRenderer.step(`2. 보증 가능 수명(B_{${targetBx}}) 계산`,
+                `B_{${targetBx},cert} = \\frac{AF \\cdot t_{test} \\cdot [-\\ln(1-F_x)]^{1/\\beta}}{(\\chi^2 / 2n)^{1/\\beta}} = \\frac{${af.toFixed(4)} \\cdot ${tTestUser} \\cdot [-\\ln(1-${bxFraction})]^{1/${beta}}}{(${chi2.toFixed(4)} / ${2*n})^{1/${beta}}} = ${Math.round(certifiedLife).toLocaleString()}\\text{시간}`
             );
             const etaUse = Math.round(certifiedLife / Math.pow(-Math.log(1 - bxFraction), 1 / beta));
             steps += FormulaRenderer.step('3. 도출된 척도모수(\\eta_{use})',
-                `\\eta_{use} = \\frac{B_{x,cert}}{[-\\ln(1-F_x)]^{1/\\beta}} = ${etaUse}`
+                `\\eta_{use} = \\frac{B_{x,cert}}{[-\\ln(1-F_x)]^{1/\\beta}} = ${etaUse.toLocaleString()}\\text{시간}`
             );
         }
 
@@ -147,38 +271,57 @@ const Acceleration = {
     generateAFvsStress(model, params) {
         const data = [];
         if (model === 'arrhenius' || model === 'eyring') {
-            // 온도 50°C ~ 200°C 범위
-            for (let t = 50; t <= 200; t += 5) {
+            const tUse = params.tUse || 25;
+            const tStress = params.tStress || 85;
+            const tMin = Math.max(0, Math.floor(tUse / 10) * 10);
+            const tMax = Math.ceil((tStress * 1.2) / 10) * 10;
+            const step = (tMax - tMin) > 100 ? 10 : 5;
+            for (let t = tMin; t <= tMax; t += step) {
                 const af = model === 'arrhenius'
-                    ? this.calcArrhenius(params.ea, params.tUse, t)
-                    : this.calcEyring(params.ea, params.tUse, t, params.b || 0, params.sUse || 0, params.sStress || 0);
+                    ? this.calcArrhenius(params.ea, tUse, t)
+                    : this.calcEyring(params.ea, tUse, t, params.b || 0, params.sUse || 0, params.sStress || 0);
                 data.push({ stress: t, af: parseFloat(af.toFixed(3)), label: `${t}°C` });
             }
         } else if (model === 'peck') {
-            // 습도 30%~100% 범위 (온도 고정)
-            for (let rh = 30; rh <= 100; rh += 5) {
-                const af = this.calcPeck(params.ea, params.nPeck, params.tUse, params.rhUse, params.tStress, rh);
+            const rhUse = params.rhUse || 60;
+            const rhStress = params.rhStress || 85;
+            const rhMin = Math.max(10, Math.floor(rhUse / 10) * 10);
+            const rhMax = Math.min(100, Math.ceil((rhStress * 1.2) / 10) * 10);
+            const step = (rhMax - rhMin) > 50 ? 5 : 2;
+            for (let rh = rhMin; rh <= rhMax; rh += step) {
+                const af = this.calcPeck(params.ea, params.nPeck, params.tUse, rhUse, params.tStress, rh);
                 data.push({ stress: rh, af: parseFloat(af.toFixed(3)), label: `${rh}%RH` });
             }
         } else if (model === 'coffin_manson' || model === 'norris_landzberg') {
-            // ΔT 30~200 범위
-            for (let dt = 30; dt <= 200; dt += 10) {
+            const dtUse = params.dtUse || 20;
+            const dtStress = params.dtStress || 100;
+            const dtMin = Math.max(5, Math.floor(dtUse / 10) * 10);
+            const dtMax = Math.ceil((dtStress * 1.2) / 10) * 10;
+            const step = (dtMax - dtMin) > 100 ? 10 : 5;
+            for (let dt = dtMin; dt <= dtMax; dt += step) {
                 const af = model === 'coffin_manson'
-                    ? this.calcCoffinManson(params.m, params.dtUse, dt)
-                    : this.calcNorrisLandzberg(params.m, params.fUse, params.fStress, params.dtUse, dt, params.tMaxUse, params.tMaxStress || dt, params.ea);
+                    ? this.calcCoffinManson(params.m, dtUse, dt)
+                    : this.calcNorrisLandzberg(params.m, params.fUse, params.fStress, dtUse, dt, params.tMaxUse, params.tMaxStress || dt, params.ea);
                 data.push({ stress: dt, af: parseFloat(af.toFixed(3)), label: `ΔT=${dt}°C` });
             }
         } else if (model === 'inverse_power') {
-            // 스트레스 레벨 범위
-            const baseV = params.vUse;
-            for (let v = baseV * 1.2; v <= baseV * 10; v += baseV * 0.4) {
-                const af = this.calcInversePower(params.n, params.vUse, v);
-                data.push({ stress: parseFloat(v.toFixed(1)), af: parseFloat(af.toFixed(3)), label: `${v.toFixed(1)}` });
+            const vUse = params.vUse || 5;
+            const vStress = params.vStress || 12;
+            const vMin = Math.max(0.1, Math.floor(vUse));
+            const vMax = Math.ceil((vStress * 1.2) * 10) / 10;
+            const step = (vMax - vMin) > 20 ? 1.0 : (vMax - vMin) > 5 ? 0.5 : 0.1;
+            for (let v = vMin; v <= vMax; v += step) {
+                const af = this.calcInversePower(params.n, vUse, v);
+                data.push({ stress: parseFloat(v.toFixed(2)), af: parseFloat(af.toFixed(3)), label: `${v.toFixed(1)}` });
             }
         } else if (model === 'arrhenius_power') {
-            // 온도 범위 (전압 고정)
-            for (let t = 50; t <= 200; t += 5) {
-                const af = this.calcArrheniusPower(params.ea, params.n, params.tUse, t, params.vUse, params.vStress);
+            const tUse = params.tUse || 25;
+            const tStress = params.tStress || 85;
+            const tMin = Math.max(0, Math.floor(tUse / 10) * 10);
+            const tMax = Math.ceil((tStress * 1.2) / 10) * 10;
+            const step = (tMax - tMin) > 100 ? 10 : 5;
+            for (let t = tMin; t <= tMax; t += step) {
+                const af = this.calcArrheniusPower(params.ea, params.n, tUse, t, params.vUse, params.vStress);
                 data.push({ stress: t, af: parseFloat(af.toFixed(3)), label: `${t}°C` });
             }
         }
