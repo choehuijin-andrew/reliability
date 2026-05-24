@@ -48,7 +48,16 @@
                     <span class="app-subtitle">Reliability Engineering Analytics</span>
                 </div>
             </div>
-            <div class="header-right">
+            <div class="header-right" style="display: flex; gap: 0.75rem; align-items: center;">
+                <button id="theme-toggle-btn" class="btn btn-secondary" onclick="toggleTheme()" style="min-height: 32px; height: 32px; padding: 0 0.75rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; border-radius: 6px; cursor: pointer;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19C5.32626 19.475 6.00282 19.6136 6.61331 19.349C7.22379 19.0844 7.625 18.475 7.625 17.8125C7.625 16.5367 8.66173 15.5 9.9375 15.5H11.5C12.3284 15.5 13 16.1716 13 17V20.5C13 21.3284 12.3284 22 11.5 22H12Z"/>
+                        <circle cx="7.5" cy="10.5" r="1.5" fill="currentColor"/>
+                        <circle cx="11.5" cy="7.5" r="1.5" fill="currentColor"/>
+                        <circle cx="16.5" cy="9.5" r="1.5" fill="currentColor"/>
+                    </svg>
+                    <span id="theme-btn-text">Black 테마</span>
+                </button>
                 <span class="badge badge-info">v3.0 Static</span>
             </div>
         </header>

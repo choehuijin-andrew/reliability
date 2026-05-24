@@ -8,21 +8,86 @@
 
 /* ── CSS Variables (Design Tokens) ── */
 :root {
-  /* Colors */
-  --bg-primary:    #0f172a;
-  --bg-secondary:  #1e293b;
-  --bg-tertiary:   #253047;
-  --bg-glass:      rgba(30, 41, 59, 0.75);
-  --bg-hover:      rgba(56, 189, 248, 0.08);
+  /* Colors - Option A: White Theme (Default - Light Mode) */
+  --bg-primary:    #f8fafc;
+  --bg-secondary:  #ffffff;
+  --bg-tertiary:   #f1f5f9;
+  --bg-glass:      #ffffff;
+  --bg-hover:      rgba(30, 58, 138, 0.06);
 
-  --text-primary:   #f8fafc;
-  --text-secondary: #94a3b8;
+  --text-primary:   #0f172a;
+  --text-secondary: #334155;
   --text-muted:     #64748b;
 
-  --accent-color:   #38bdf8;
-  --accent-dark:    #0ea5e9;
-  --accent-glow:    rgba(56, 189, 248, 0.35);
-  --accent-subtle:  rgba(56, 189, 248, 0.12);
+  --accent-color:   #1e3a8a; /* Classic Navy */
+  --accent-dark:    #172554;
+  --accent-glow:    rgba(30, 58, 138, 0.15);
+  --accent-subtle:  rgba(30, 58, 138, 0.06);
+  --accent-contrast: #ffffff;
+
+  --danger:     #ef4444;
+  --danger-bg:  rgba(239, 68, 68, 0.06);
+  --success:    #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.06);
+  --warning:    #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.06);
+  --purple:     #7c3aed;
+  --purple-bg:  rgba(124, 58, 237, 0.06);
+
+  /* Chart Colors (의미론적) */
+  --chart-reliability: #16a34a;
+  --chart-failure:     #ef4444;
+  --chart-density:     #d97706;
+  --chart-hazard:      #7c3aed;
+
+  /* Layout */
+  --card-radius:  16px;
+  --card-radius-sm: 10px;
+  --border-color: rgba(15, 23, 42, 0.08);
+  --border-color-hover: rgba(30, 58, 138, 0.3);
+
+  /* Spacing */
+  --container-max: 1440px;
+  --container-pad: 1.5rem;
+  --gap-sm:  0.75rem;
+  --gap-md:  1.25rem;
+  --gap-lg:  2rem;
+
+  --sidebar-width: 380px;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-glow: 0 0 12px rgba(30, 58, 138, 0.1);
+
+  /* Transitions */
+  --transition: 0.2s ease;
+
+  /* Mobile Nav */
+  --mobile-nav-height: 64px;
+}
+
+/* Colors - Option B: Black Theme (Dark Mode) */
+body[data-theme="black"] {
+  --bg-primary:    #0b0c10;
+  --bg-secondary:  #1f2833;
+  --bg-tertiary:   #151a22;
+  --bg-glass:      rgba(31, 40, 51, 0.85);
+  --bg-hover:      rgba(102, 252, 241, 0.08);
+
+  --text-primary:   #f8fafc;
+  --text-secondary: #c5c6c7;
+  --text-muted:     #8f9194;
+
+  --accent-color:   #66fcf1; /* Neon Cyan */
+  --accent-dark:    #45e3da;
+  --accent-glow:    rgba(102, 252, 241, 0.35);
+  --accent-subtle:  rgba(102, 252, 241, 0.12);
+  --accent-contrast: #0f172a;
 
   --danger:     #ef4444;
   --danger-bg:  rgba(239, 68, 68, 0.12);
@@ -39,36 +104,15 @@
   --chart-density:     #f59e0b;
   --chart-hazard:      #a78bfa;
 
-  /* Layout */
-  --card-radius:  16px;
-  --card-radius-sm: 10px;
   --border-color: rgba(255, 255, 255, 0.08);
-  --border-color-hover: rgba(56, 189, 248, 0.4);
+  --border-color-hover: rgba(102, 252, 241, 0.4);
 
-  /* Spacing */
-  --container-max: 1440px;
-  --container-pad: 1.5rem;
-  --gap-sm:  0.75rem;
-  --gap-md:  1.25rem;
-  --gap-lg:  2rem;
-
-  --sidebar-width: 380px;
-
-  /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-  /* Shadows */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 20px rgba(56, 189, 248, 0.2);
-
-  /* Transitions */
-  --transition: 0.2s ease;
-
-  /* Mobile Nav */
-  --mobile-nav-height: 64px;
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 15px rgba(102, 252, 241, 0.2);
 }
+
+/* Titles use system Gothic/Sans-serif by default */
 
 /* ── Base Reset ── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -270,7 +314,7 @@ body {
 
 .btn-primary {
   background: var(--accent-color);
-  color: #0f172a;
+  color: var(--accent-contrast);
   font-weight: 600;
 }
 

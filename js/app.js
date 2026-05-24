@@ -4410,13 +4410,48 @@ function initTabEvents(tabId) {
 }
 
 // ═══════════════════════════════════════════
+// 테마 관리 (White Theme vs Black Theme)
+// ═══════════════════════════════════════════
+function initTheme() {
+    const savedTheme = localStorage.getItem('re-suite-theme') || 'white';
+    document.body.setAttribute('data-theme', savedTheme);
+    updateThemeButtonUI(savedTheme);
+    if (typeof ChartManager !== 'undefined' && ChartManager.updateTheme) {
+        ChartManager.updateTheme(savedTheme);
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.body.getAttribute('data-theme') || 'white';
+    const newTheme = currentTheme === 'white' ? 'black' : 'white';
+    document.body.setAttribute('data-theme', newTheme);
+    localStorage.setItem('re-suite-theme', newTheme);
+    updateThemeButtonUI(newTheme);
+    if (typeof ChartManager !== 'undefined' && ChartManager.updateTheme) {
+        ChartManager.updateTheme(newTheme);
+    }
+}
+
+function updateThemeButtonUI(theme) {
+    const btnText = document.getElementById('theme-btn-text');
+    if (!btnText) return;
+    if (theme === 'white') {
+        btnText.textContent = 'Black 테마';
+    } else {
+        btnText.textContent = 'White 테마';
+    }
+}
+
+// ═══════════════════════════════════════════
 // 앱 초기화
 // ═══════════════════════════════════════════
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
+        initTheme();
         switchTab('planning');
     });
 } else {
+    initTheme();
     switchTab('planning');
 }
 

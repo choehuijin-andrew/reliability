@@ -18,13 +18,67 @@ const ChartManager = {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return null;
 
-        // 다크 테마 기본 설정
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.borderColor = 'rgba(255,255,255,0.08)';
+        const isWhite = (document.body.getAttribute('data-theme') || 'white') === 'white';
+        const textColor = isWhite ? '#475569' : '#8f9194';
+        const gridColor = isWhite ? 'rgba(15, 23, 42, 0.08)' : 'rgba(255, 255, 255, 0.08)';
+
+        // 테마별 기본 설정 반영
+        Chart.defaults.color = isWhite ? '#334155' : '#c5c6c7';
+        Chart.defaults.borderColor = gridColor;
         Chart.defaults.font.family = "'Inter', sans-serif";
+
+        // config의 scales가 있으면 테마 컬러 덮어쓰기
+        if (config.options && config.options.scales) {
+            Object.keys(config.options.scales).forEach(scaleKey => {
+                const scale = config.options.scales[scaleKey];
+                if (scale) {
+                    if (!scale.grid) scale.grid = {};
+                    scale.grid.color = gridColor;
+                    if (!scale.ticks) scale.ticks = {};
+                    scale.ticks.color = textColor;
+                    if (scale.title) {
+                        scale.title.color = textColor;
+                    }
+                }
+            });
+        }
+
+        // config의 legend가 있으면 덮어쓰기
+        if (config.options && config.options.plugins && config.options.plugins.legend) {
+            if (!config.options.plugins.legend.labels) config.options.plugins.legend.labels = {};
+            config.options.plugins.legend.labels.color = isWhite ? '#334155' : '#c5c6c7';
+        }
+
+        // 줌 및 팬 설정 자동 주입 (Ctrl 키 모디파이어 및 모바일 터치 오동작 방지)
+        if (!config.options) config.options = {};
+        if (!config.options.plugins) config.options.plugins = {};
+        config.options.plugins.zoom = {
+            pan: {
+                enabled: true,
+                mode: 'xy',
+                modifierKey: 'ctrl',
+                onPan: ({ chart }) => {
+                    updateControlsFromChart(chart);
+                }
+            },
+            zoom: {
+                wheel: { enabled: true, modifierKey: 'ctrl' },
+                pinch: { enabled: false },
+                mode: 'xy',
+                onZoom: ({ chart }) => {
+                    updateControlsFromChart(chart);
+                }
+            }
+        };
 
         const chart = new Chart(canvas, config);
         this._charts[canvasId] = chart;
+
+        // 조작 컨트롤바 자동 부착 (비동기로 DOM 준비 대기)
+        setTimeout(() => {
+            attachControls(canvas, canvasId);
+        }, 50);
+
         return chart;
     },
 
@@ -326,5 +380,213 @@ const ChartManager = {
                 }
             }
         });
+    },
+
+    /**
+     * 테마 변경에 따른 차트 색상 업데이트
+     * @param {string} themeName - 'white' 또는 'black'
+     */
+    updateTheme(themeName) {
+        const isWhite = themeName === 'white';
+        const textColor = isWhite ? '#475569' : '#8f9194';
+        const gridColor = isWhite ? 'rgba(15, 23, 42, 0.08)' : 'rgba(255, 255, 255, 0.08)';
+        const legendColor = isWhite ? '#334155' : '#c5c6c7';
+
+        // 1. Chart.js 기본 설정 변경 (이후 그려지는 차트에 적용)
+        Chart.defaults.color = legendColor;
+        Chart.defaults.borderColor = gridColor;
+
+        // 2. 기존 활성 차트 업데이트
+        Object.keys(this._charts).forEach(id => {
+            const chart = this._charts[id];
+            if (!chart || !chart.options || !chart.options.scales) return;
+
+            // X축 업데이트
+            if (chart.options.scales.x) {
+                if (!chart.options.scales.x.grid) chart.options.scales.x.grid = {};
+                chart.options.scales.x.grid.color = gridColor;
+                if (!chart.options.scales.x.ticks) chart.options.scales.x.ticks = {};
+                chart.options.scales.x.ticks.color = textColor;
+                if (chart.options.scales.x.title) {
+                    chart.options.scales.x.title.color = textColor;
+                }
+            }
+
+            // Y축 업데이트
+            if (chart.options.scales.y) {
+                if (!chart.options.scales.y.grid) chart.options.scales.y.grid = {};
+                chart.options.scales.y.grid.color = gridColor;
+                if (!chart.options.scales.y.ticks) chart.options.scales.y.ticks = {};
+                chart.options.scales.y.ticks.color = textColor;
+                if (chart.options.scales.y.title) {
+                    chart.options.scales.y.title.color = textColor;
+                }
+            }
+
+            // 보조 Y축 (y1) 업데이트 (있을 경우)
+            if (chart.options.scales.y1) {
+                if (!chart.options.scales.y1.grid) chart.options.scales.y1.grid = {};
+                chart.options.scales.y1.grid.color = gridColor;
+                if (!chart.options.scales.y1.ticks) chart.options.scales.y1.ticks = {};
+                chart.options.scales.y1.ticks.color = textColor;
+                if (chart.options.scales.y1.title) {
+                    chart.options.scales.y1.title.color = textColor;
+                }
+            }
+
+            // 범례 색상 업데이트
+            if (chart.options.plugins && chart.options.plugins.legend) {
+                if (!chart.options.plugins.legend.labels) chart.options.plugins.legend.labels = {};
+                chart.options.plugins.legend.labels.color = legendColor;
+            }
+
+            chart.update();
+        });
     }
 };
+
+function updateControlsFromChart(chart) {
+    const canvas = chart.canvas;
+    const container = canvas.closest('.chart-container') || canvas;
+    const controls = container.nextElementSibling;
+    if (controls && controls.classList.contains('chart-controls')) {
+        const xMinInput = controls.querySelector('.x-min');
+        const xMaxInput = controls.querySelector('.x-max');
+        const yMinInput = controls.querySelector('.y-min');
+        const yMaxInput = controls.querySelector('.y-max');
+        
+        if (xMinInput && chart.scales.x && chart.scales.x.min !== undefined) {
+            xMinInput.value = Number(chart.scales.x.min.toFixed(2));
+        }
+        if (xMaxInput && chart.scales.x && chart.scales.x.max !== undefined) {
+            xMaxInput.value = Number(chart.scales.x.max.toFixed(2));
+        }
+        if (yMinInput && chart.scales.y && chart.scales.y.min !== undefined) {
+            yMinInput.value = Number(chart.scales.y.min.toFixed(2));
+        }
+        if (yMaxInput && chart.scales.y && chart.scales.y.max !== undefined) {
+            yMaxInput.value = Number(chart.scales.y.max.toFixed(2));
+        }
+    }
+}
+
+function attachControls(canvas, canvasId) {
+    const targetCharts = [
+        'chart-pdf', 'chart-hf', 'chart-cdf', 'chart-sf', 'chart-contour',
+        'warranty-bar-chart', 'warranty-cumul-chart', 'warranty-pdf-chart', 'warranty-hf-chart', 'warranty-cdf-chart', 'warranty-sf-chart',
+        'degrad-path-chart', 'degrad-lifetime-chart', 'acc-tradeoff-chart', 'acc-af-chart', 'wbx-tradeoff-chart', 'oc-chart'
+    ];
+
+    if (!targetCharts.includes(canvasId)) return;
+
+    const container = canvas.closest('.chart-container') || canvas;
+    const nextSib = container.nextElementSibling;
+    if (nextSib && nextSib.classList.contains('chart-controls')) {
+        return; // 이미 부착됨
+    }
+
+    const controlsHtml = `
+        <div class="chart-controls" data-chart-id="${canvasId}" style="display: flex; gap: 0.5rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; padding: 0.35rem 0.5rem; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.78rem;">
+            <span style="font-weight: 500; color: var(--text-secondary);">축 범위 조정:</span>
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+                <span>X축:</span>
+                <input type="number" class="scale-input x-min" placeholder="최소" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+                <span>~</span>
+                <input type="number" class="scale-input x-max" placeholder="최대" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;">
+                <span>Y축:</span>
+                <input type="number" class="scale-input y-min" placeholder="최소" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+                <span>~</span>
+                <input type="number" class="scale-input y-max" placeholder="최대" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+            </div>
+            <button class="btn btn-secondary btn-apply-scale" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">적용</button>
+            <button class="btn btn-secondary btn-auto-scale" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">자동</button>
+            <button class="btn btn-secondary btn-reset-zoom" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">초기화</button>
+        </div>
+    `;
+    container.insertAdjacentHTML('afterend', controlsHtml);
+
+    const controlsEl = container.nextElementSibling;
+    const xMinInput = controlsEl.querySelector('.x-min');
+    const xMaxInput = controlsEl.querySelector('.x-max');
+    const yMinInput = controlsEl.querySelector('.y-min');
+    const yMaxInput = controlsEl.querySelector('.y-max');
+
+    const applyScale = () => {
+        const chart = ChartManager._charts[canvasId];
+        if (!chart) return;
+
+        const xm = xMinInput.value;
+        const xM = xMaxInput.value;
+        const ym = yMinInput.value;
+        const yM = yMaxInput.value;
+
+        if (!chart.options.scales.x) chart.options.scales.x = {};
+        if (!chart.options.scales.y) chart.options.scales.y = {};
+
+        if (xm !== '') chart.options.scales.x.min = parseFloat(xm); else delete chart.options.scales.x.min;
+        if (xM !== '') chart.options.scales.x.max = parseFloat(xM); else delete chart.options.scales.x.max;
+        if (ym !== '') chart.options.scales.y.min = parseFloat(ym); else delete chart.options.scales.y.min;
+        if (yM !== '') chart.options.scales.y.max = parseFloat(yM); else delete chart.options.scales.y.max;
+
+        chart.update();
+    };
+
+    controlsEl.querySelector('.btn-apply-scale').addEventListener('click', applyScale);
+
+    [xMinInput, xMaxInput, yMinInput, yMaxInput].forEach(input => {
+        if (input) {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    applyScale();
+                }
+            });
+        }
+    });
+
+    controlsEl.querySelector('.btn-auto-scale').addEventListener('click', () => {
+        const chart = ChartManager._charts[canvasId];
+        if (!chart) return;
+
+        xMinInput.value = '';
+        xMaxInput.value = '';
+        yMinInput.value = '';
+        yMaxInput.value = '';
+
+        if (chart.options.scales.x) {
+            delete chart.options.scales.x.min;
+            delete chart.options.scales.x.max;
+        }
+        if (chart.options.scales.y) {
+            delete chart.options.scales.y.min;
+            delete chart.options.scales.y.max;
+        }
+
+        chart.update();
+    });
+
+    controlsEl.querySelector('.btn-reset-zoom').addEventListener('click', () => {
+        const chart = ChartManager._charts[canvasId];
+        if (!chart) return;
+
+        xMinInput.value = '';
+        xMaxInput.value = '';
+        yMinInput.value = '';
+        yMaxInput.value = '';
+
+        if (typeof chart.resetZoom === 'function') {
+            chart.resetZoom();
+        }
+
+        if (chart.options.scales.x) {
+            delete chart.options.scales.x.min;
+            delete chart.options.scales.x.max;
+        }
+        if (chart.options.scales.y) {
+            delete chart.options.scales.y.min;
+            delete chart.options.scales.y.max;
+        }
+        chart.update();
+    });
+}
