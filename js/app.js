@@ -2441,13 +2441,61 @@ function drawAQLOC() {} // deprecated from old UI
 // ═══════════════════════════════════════════
 // 가속 수명 시험 탭
 // ═══════════════════════════════════════════
+let _accSubTab = 'design'; // 'design' | 'analysis'
+let _altHot = null; // Handsontable for ALT Analysis
+let _altResult = null;
+
 function renderAccelerationTab() {
+    return `
+    <!-- 서브 탭 -->
+    <div class="sub-tabs" id="acc-sub-tabs">
+        <button class="sub-tab-btn ${_accSubTab === 'design' ? 'active' : ''}" data-subtab="design" onclick="switchAccSubTab('design')">가속시험 설계</button>
+        <button class="sub-tab-btn ${_accSubTab === 'analysis' ? 'active' : ''}" data-subtab="analysis" onclick="switchAccSubTab('analysis')">가속 데이터 분석</button>
+    </div>
+    <div id="acc-tab-content">
+        ${_accSubTab === 'design' ? renderAccDesignContent() : renderAccAnalysisContent()}
+    </div>`;
+}
+
+function switchAccSubTab(subtab) {
+    if (_altHot && _accSubTab === 'analysis') {
+        window._savedAltData = _altHot.getData();
+        window._savedAltModel = document.getElementById('alt-model')?.value;
+    }
+    _accSubTab = subtab;
+    document.querySelectorAll('#acc-sub-tabs .sub-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subtab === subtab);
+    });
+    const container = document.getElementById('acc-tab-content');
+    if (!container) return;
+
+    ChartManager.destroyAll();
+
+    if (subtab === 'design') {
+        container.innerHTML = renderAccDesignContent();
+        setTimeout(() => {
+            updateAccModelInputs();
+            runAcceleration();
+        }, 50);
+    } else {
+        container.innerHTML = renderAccAnalysisContent();
+        setTimeout(() => {
+            initAltAnalysisGrid();
+            if (window._savedAltModel) {
+                document.getElementById('alt-model').value = window._savedAltModel;
+                switchAltModel(window._savedAltModel);
+            }
+        }, 50);
+    }
+}
+
+function renderAccDesignContent() {
     return `
     <div class="grid-cols-1-2">
         <div class="glass-card">
             <h3 class="section-title">가속 수명 시험 설계</h3>
 
-            ${HelpTooltip.labelWithHelp('가속 모델', '스트레스 유형에 따른 가속 모델 선택')}
+            \${HelpTooltip.labelWithHelp('가속 모델', '스트레스 유형에 따른 가속 모델 선택')}
             <select id="acc-model" onchange="updateAccModelInputs()">
                 <option value="arrhenius" selected>Arrhenius (온도)</option>
                 <option value="eyring" style="display:none">Eyring (온도 + 비열 스트레스)</option>
@@ -2477,12 +2525,12 @@ function renderAccelerationTab() {
             </div>
 
             <div id="acc-model-inputs">
-                ${renderArrheniusInputs()}
+                \${renderArrheniusInputs()}
             </div>
 
             <div class="divider">시험 조건</div>
             <div id="acc-test-inputs">
-                ${renderAccTestInputs()}
+                \${renderAccTestInputs()}
             </div>
 
             <button class="btn btn-primary" style="width:100%;margin-top:1.25rem;font-size:1rem"
@@ -4794,4 +4842,913 @@ function initAccelerationEvents() {
     tabEl.addEventListener('input', handleAutoUpdate);
     tabEl.addEventListener('change', handleAutoUpdate);
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 가속 데이터 분석 (ALT MLE) UI & 제어 로직 (Phase B & Phase C)
+// ─────────────────────────────────────────────────────────────────────────
+
+function renderAccAnalysisContent() {
+    return `
+    <div class="grid-cols-1-2">
+        <!-- 입력 및 제어 패널 -->
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem">
+                <h3 class="section-title" style="margin:0">가속 데이터 분석 (ALT MLE)</h3>
+                <!-- 예제 데이터 드롭다운 -->
+                <div style="position:relative">
+                    <button class="btn btn-sm btn-secondary" id="alt-sample-btn"
+                        onclick="document.getElementById('alt-sample-dropdown').style.display = document.getElementById('alt-sample-dropdown').style.display==='block'?'none':'block'"
+                        style="font-size:0.72rem;padding:2px 8px;height:24px;line-height:1">📋 예제 데이터 ▾</button>
+                    <div id="alt-sample-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:9999;min-width:320px;max-height:400px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);margin-top:4px">
+                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);background:var(--bg-tertiary)">📌 Arrhenius (온도 단일)</div>
+                        <div class="sample-item" onclick="loadAltSample('arrhenius_reliasoft');closeAltSampleDropdown()">
+                            <div style="font-size:0.82rem;color:var(--text-primary)">Semiconductor HTOL (ReliaSoft)</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">406°C, 346°C, 296°C 가속 수명 데이터</div>
+                        </div>
+                        <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:var(--bg-tertiary)">📌 GLL (온도 + 습도/전압 복합)</div>
+                        <div class="sample-item" onclick="loadAltSample('gll_humidity');closeAltSampleDropdown()">
+                            <div style="font-size:0.82rem;color:var(--text-primary)">Capacitor HAST (온도+습도 Peck)</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">130°C/85%, 110°C/85%, 130°C/60% 데이터</div>
+                        </div>
+                        <div class="sample-item" onclick="loadAltSample('gll_three_stress');closeAltSampleDropdown()">
+                            <div style="font-size:0.82rem;color:var(--text-primary)">3원 복합 가속 (온도+습도+전압)</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">온도/습도/전압 3개 스트레스 조합 분석 샘플</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            ${HelpTooltip.labelWithHelp('분석 모델', '수명-스트레스 가속 모델 선택')}
+            <select id="alt-model" onchange="switchAltModel(this.value)" style="margin-bottom:0.75rem">
+                <option value="arrhenius" selected>Arrhenius (온도 단일 스트레스)</option>
+                <option value="gll">GLL (다중 복합 스트레스 요인)</option>
+            </select>
+
+            <!-- 동적 스트레스 요인 세팅 영역 -->
+            <div id="alt-stress-config-area"></div>
+
+            <div id="alt-grid-hint" style="font-size:0.76rem;color:var(--text-muted);margin-bottom:0.6rem">
+                정의된 가속 스트레스 열을 순서대로 채워 넣으세요. (이벤트: <strong>F</strong>(고장), <strong>C</strong>(중단))
+            </div>
+
+            <!-- 데이터 그리드 -->
+            <div id="alt-analysis-grid" style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden"></div>
+
+            <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;justify-content:space-between">
+                <div style="display:flex;gap:0.4rem">
+                    <button class="btn btn-sm btn-secondary" onclick="addAltRow()">+ 행 추가</button>
+                    <button class="btn btn-sm btn-secondary" onclick="removeLastAltRow()">삭제</button>
+                    <button class="btn btn-sm btn-secondary" onclick="clearAltGrid()">초기화</button>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="openAltPasteModal()" style="font-weight:600;color:var(--accent-color)">📋 엑셀 붙여넣기</button>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;margin-top:1.25rem;font-size:1rem" onclick="runALTAnalysis()">
+                🔍 가속 파라미터(MLE) 추정 실행
+            </button>
+        </div>
+
+        <!-- 결과 요약 패널 -->
+        <div id="alt-analysis-summary" class="glass-card">
+            <div class="empty-state" style="min-height:300px">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" stroke-width="2" opacity="0.3">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                </svg>
+                <div style="font-size:0.9rem;color:var(--text-muted);margin-top:0.75rem">
+                    가속 시험 데이터를 입력하고<br>「가속 파라미터(MLE) 추정 실행」을 클릭하세요
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 차트 영역 -->
+    <div id="alt-charts-panel" style="display:none; margin-top:1.5rem">
+        <div class="grid-2" style="gap:1rem">
+            <div class="glass-card">
+                <h4 style="color:var(--text-secondary);margin:0 0 0.75rem 0">수명-스트레스 피팅선 ($1/T_K$ vs $\\ln\\eta$)</h4>
+                <div class="chart-container" style="height:320px"><canvas id="alt-chart-fit"></canvas></div>
+            </div>
+            <div class="glass-card">
+                <h4 style="color:var(--text-secondary);margin:0 0 0.75rem 0">사용 조건 수명 곡선 ($R(t)$ &amp; $F(t)$)</h4>
+                <div class="chart-container" style="height:320px"><canvas id="alt-chart-probability"></canvas></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function closeAltSampleDropdown() {
+    const dd = document.getElementById('alt-sample-dropdown');
+    if (dd) dd.style.display = 'none';
+}
+
+let _altStresses = [
+    { name: '온도', type: 'reciprocal_k', useVal: 25 },
+    { name: '습도', type: 'log', useVal: 50 }
+];
+
+function switchAltModel(model) {
+    if (model === 'arrhenius') {
+        _altStresses = [{ name: '온도', type: 'reciprocal_k', useVal: 25 }];
+    } else if (model === 'gll' && _altStresses.length < 2) {
+        _altStresses = [
+            { name: '온도', type: 'reciprocal_k', useVal: 25 },
+            { name: '습도', type: 'log', useVal: 50 }
+        ];
+    }
+    renderAltStressConfigPanel();
+    initAltAnalysisGrid();
+}
+
+function renderAltStressConfigPanel() {
+    const model = document.getElementById('alt-model')?.value || 'arrhenius';
+    const configDiv = document.getElementById('alt-stress-config-area');
+    if (!configDiv) return;
+
+    if (model === 'arrhenius') {
+        _altStresses = [{ name: '온도', type: 'reciprocal_k', useVal: 25 }];
+        configDiv.innerHTML = `
+        <div style="background:var(--bg-secondary);padding:0.75rem;border-radius:8px;border:1px dashed var(--border-color);font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.75rem">
+            📌 <strong>Arrhenius 단일 가속</strong>: 온도가 고정 1차 가속 요인으로 동작합니다.
+            <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem">
+                <span>사용 온도(°C):</span>
+                <input type="number" id="alt-use-temp" value="${_altStresses[0].useVal}" 
+                    style="width:80px;height:24px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:0.75rem"
+                    onchange="_altStresses[0].useVal = parseFloat(this.value) || 25">
+            </div>
+        </div>`;
+        return;
+    }
+
+    // GLL인 경우
+    let html = `
+    <div style="background:var(--bg-secondary);padding:0.75rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:0.75rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
+            <h4 style="margin:0;font-size:0.85rem;color:var(--text-primary)">🛠️ 다중 스트레스 요인 정의</h4>
+            <button class="btn btn-sm btn-secondary" onclick="addAltStressFactor()" style="font-size:0.7rem;padding:2px 8px;height:24px;line-height:1">+ 요인 추가</button>
+        </div>
+        <div id="alt-stress-factors-list" style="display:flex;flex-direction:column;gap:0.4rem">`;
+
+    _altStresses.forEach((spec, idx) => {
+        const isTemp = idx === 0;
+        html += `
+        <div style="display:flex;align-items:center;gap:0.4rem;background:var(--bg-primary);padding:0.4rem;border-radius:6px;border:1px solid var(--border-color);flex-wrap:wrap">
+            <span style="font-size:0.75rem;font-weight:600;width:15px;text-align:center;color:var(--text-muted)">${idx+1}</span>
+            <input type="text" value="${spec.name}" placeholder="이름" 
+                style="width:90px;height:24px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:0.75rem" 
+                ${isTemp ? 'disabled' : ''} 
+                onchange="updateAltStressSpec(${idx}, 'name', this.value)">
+            
+            <select style="width:120px;height:24px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:0.72rem" 
+                ${isTemp ? 'disabled' : ''} 
+                onchange="updateAltStressSpec(${idx}, 'type', this.value)">
+                <option value="reciprocal_k" ${spec.type === 'reciprocal_k' ? 'selected' : ''}>Arrhenius (1/TK)</option>
+                <option value="log" ${spec.type === 'log' ? 'selected' : ''}>Power (ln S)</option>
+                <option value="linear" ${spec.type === 'linear' ? 'selected' : ''}>Exponential (S)</option>
+                <option value="reciprocal" ${spec.type === 'reciprocal' ? 'selected' : ''}>Reciprocal (1/S)</option>
+            </select>
+
+            <div style="display:flex;align-items:center;gap:0.25rem;font-size:0.72rem;color:var(--text-secondary)">
+                <span>사용치:</span>
+                <input type="number" value="${spec.useVal}" 
+                    style="width:65px;height:24px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:0.75rem" 
+                    onchange="updateAltStressSpec(${idx}, 'useVal', parseFloat(this.value) || 0)">
+            </div>
+
+            ${!isTemp ? `<button class="btn btn-sm btn-secondary" onclick="removeAltStressFactor(${idx})" style="padding:2px 6px;height:24px;color:var(--danger);font-size:0.7rem;line-height:1">삭제</button>` : ''}
+        </div>`;
+    });
+
+    html += `</div></div>`;
+    configDiv.innerHTML = html;
+}
+
+function updateAltStressSpec(idx, key, val) {
+    if (_altStresses[idx]) {
+        _altStresses[idx][key] = val;
+        if (key === 'name' || key === 'type') {
+            initAltAnalysisGrid();
+        }
+    }
+}
+
+function addAltStressFactor() {
+    _altStresses.push({ name: `스트레스${_altStresses.length + 1}`, type: 'log', useVal: 1.0 });
+    renderAltStressConfigPanel();
+    initAltAnalysisGrid();
+}
+
+function removeAltStressFactor(idx) {
+    if (idx > 0) {
+        _altStresses.splice(idx, 1);
+        renderAltStressConfigPanel();
+        initAltAnalysisGrid();
+    }
+}
+
+function initAltAnalysisGrid() {
+    const container = document.getElementById('alt-analysis-grid');
+    if (!container) return;
+
+    if (_altHot) {
+        try { _altHot.destroy(); } catch (e) {}
+        _altHot = null;
+    }
+
+    const model = document.getElementById('alt-model')?.value || 'arrhenius';
+    const isGLL = model === 'gll';
+
+    // 기본 행 구성
+    let initData = [];
+    if (window._savedAltData && window._savedAltData.length > 0) {
+        initData = window._savedAltData;
+    } else {
+        if (isGLL) {
+            // 정의된 스트레스 요인 개수에 맞춰 더미 열 채우기
+            const stressCount = _altStresses.length;
+            initData = [
+                [130, 85, 100, 'F', 1],
+                [130, 85, 150, 'F', 1],
+                [110, 85, 300, 'F', 1],
+                [130, 60, 250, 'F', 1]
+            ].map(row => {
+                const newRow = Array(stressCount + 3).fill(null);
+                // 온도, 습도 채우기
+                newRow[0] = row[0];
+                if (stressCount > 1) newRow[1] = row[1];
+                // 3차 이상의 스트레스는 1.0 기본값
+                for (let k = 2; k < stressCount; k++) {
+                    newRow[k] = 1.0;
+                }
+                newRow[stressCount] = row[2]; // 시간
+                newRow[stressCount + 1] = row[3]; // 이벤트
+                newRow[stressCount + 2] = row[4]; // 개수
+                return newRow;
+            });
+        } else {
+            initData = [
+                [406, 248, 'F', 1],
+                [406, 456, 'F', 1],
+                [346, 1657, 'F', 1],
+                [296, 5739, 'F', 1]
+            ];
+        }
+    }
+
+    let colHeaders = [];
+    let columns = [];
+    if (isGLL) {
+        _altStresses.forEach(spec => {
+            colHeaders.push(`${spec.name} (${spec.type === 'reciprocal_k' ? '°C' : spec.name})`);
+            columns.push({ type: 'numeric' });
+        });
+        colHeaders.push('시간 (hrs)', '이벤트', '개수');
+        columns.push(
+            { type: 'numeric' },
+            { type: 'dropdown', source: ['F', 'C'] },
+            { type: 'numeric' }
+        );
+    } else {
+        colHeaders = ['온도 (°C)', '시간 (hrs)', '이벤트', '개수'];
+        columns = [
+            { type: 'numeric' },
+            { type: 'numeric' },
+            { type: 'dropdown', source: ['F', 'C'] },
+            { type: 'numeric' }
+        ];
+    }
+
+    _altHot = new Handsontable(container, {
+        data: initData,
+        colHeaders: colHeaders,
+        columns: columns,
+        rowHeaders: true,
+        height: 280,
+        width: '100%',
+        licenseKey: 'non-commercial-and-evaluation',
+        stretchH: 'all',
+        contextMenu: ['row_above', 'row_below', 'remove_row', '---------', 'undo', 'redo']
+    });
+}
+
+function addAltRow() {
+    if (_altHot) _altHot.alter('insert_row_below');
+}
+
+function removeLastAltRow() {
+    if (_altHot) {
+        const count = _altHot.countRows();
+        if (count > 1) _altHot.alter('remove_row', count - 1);
+    }
+}
+
+function clearAltGrid() {
+    const model = document.getElementById('alt-model')?.value || 'arrhenius';
+    const isGLL = model === 'gll';
+    const cols = isGLL ? _altStresses.length + 3 : 4;
+    const emptyRow = Array(cols).fill(null);
+    emptyRow[cols - 2] = 'F'; // 이벤트 기본
+    emptyRow[cols - 1] = 1;   // 개수 기본
+    if (_altHot) _altHot.loadData([emptyRow, [...emptyRow], [...emptyRow]]);
+    _altResult = null;
+    document.getElementById('alt-charts-panel').style.display = 'none';
+}
+
+const ALT_SAMPLE_DATA = {
+    arrhenius_reliasoft: {
+        model: 'arrhenius',
+        stresses: [{ name: '온도', type: 'reciprocal_k', useVal: 25 }],
+        data: [
+            [406, 248, 'F', 1], [406, 456, 'F', 1], [406, 528, 'F', 1],
+            [406, 731, 'F', 1], [406, 813, 'F', 1], [406, 965, 'F', 1],
+            [346, 1657, 'F', 1], [346, 2011, 'F', 1], [346, 2256, 'F', 1],
+            [346, 2812, 'F', 1], [346, 3479, 'F', 1], [346, 3888, 'F', 1],
+            [296, 5739, 'F', 1], [296, 7831, 'F', 1], [296, 8613, 'F', 1],
+            [296, 10162, 'F', 1], [296, 12811, 'F', 1], [296, 14541, 'F', 1]
+        ]
+    },
+    gll_humidity: {
+        model: 'gll',
+        stresses: [
+            { name: '온도', type: 'reciprocal_k', useVal: 25 },
+            { name: '습도', type: 'log', useVal: 50 }
+        ],
+        data: [
+            [130, 85, 15, 'F', 1], [130, 85, 23, 'F', 1], [130, 85, 31, 'F', 1],
+            [130, 85, 45, 'F', 1], [130, 85, 52, 'F', 1], [130, 85, 68, 'F', 1],
+            [110, 85, 42, 'F', 1], [110, 85, 58, 'F', 1], [110, 85, 70, 'F', 1],
+            [110, 85, 85, 'F', 1], [110, 85, 110, 'F', 1], [110, 85, 140, 'F', 1],
+            [130, 60, 38, 'F', 1], [130, 60, 52, 'F', 1], [130, 60, 75, 'F', 1],
+            [130, 60, 95, 'F', 1], [130, 60, 120, 'F', 1], [130, 60, 160, 'F', 1]
+        ]
+    },
+    gll_three_stress: {
+        model: 'gll',
+        stresses: [
+            { name: '온도', type: 'reciprocal_k', useVal: 25 },
+            { name: '습도', type: 'log', useVal: 50 },
+            { name: '전압', type: 'log', useVal: 5 }
+        ],
+        data: [
+            // 온도(°C), 습도(%RH), 전압(V), 시간(hrs), 이벤트(F/C), 개수
+            [130, 85, 12, 12, 'F', 1], [130, 85, 12, 18, 'F', 1], [130, 85, 12, 25, 'F', 1],
+            [130, 85, 6, 32, 'F', 1], [130, 85, 6, 45, 'F', 1], [130, 85, 6, 60, 'F', 1],
+            [110, 85, 12, 35, 'F', 1], [110, 85, 12, 52, 'F', 1], [110, 85, 12, 68, 'F', 1],
+            [110, 85, 6, 90, 'F', 1], [110, 85, 6, 115, 'F', 1], [110, 85, 6, 150, 'F', 1],
+            [130, 60, 12, 28, 'F', 1], [130, 60, 12, 40, 'F', 1], [130, 60, 12, 55, 'F', 1],
+            [130, 60, 6, 75, 'F', 1], [130, 60, 6, 102, 'F', 1], [130, 60, 6, 138, 'F', 1]
+        ]
+    }
+};
+
+function loadAltSample(key) {
+    const sample = ALT_SAMPLE_DATA[key];
+    if (!sample) return;
+
+    document.getElementById('alt-model').value = sample.model;
+    // 스트레스 구성 동기화
+    _altStresses = JSON.parse(JSON.stringify(sample.stresses));
+    renderAltStressConfigPanel();
+    initAltAnalysisGrid();
+
+    setTimeout(() => {
+        if (_altHot) _altHot.loadData(sample.data);
+    }, 100);
+}
+
+function runALTAnalysis() {
+    if (!_altHot) return;
+    const model = document.getElementById('alt-model').value;
+    const isGLL = model === 'gll';
+    const rawData = _altHot.getData();
+    const p = _altStresses.length; // 스트레스 개수
+
+    // 데이터 파싱
+    const groupsMap = {};
+    for (const r of rawData) {
+        if (r[0] === null || r[0] === '' || isNaN(parseFloat(r[0]))) continue;
+        const temp = parseFloat(r[0]);
+        
+        const extraStresses = [];
+        let time = 0;
+        let ev = 'F';
+        let cnt = 1;
+
+        if (isGLL) {
+            // [온도, s2, s3, ..., 시간, 이벤트, 개수]
+            for (let i = 1; i < p; i++) {
+                extraStresses.push(parseFloat(r[i]) || _altStresses[i].useVal);
+            }
+            time = parseFloat(r[p]);
+            ev = r[p + 1] || 'F';
+            cnt = parseInt(r[p + 2]) || 1;
+        } else {
+            // [온도, 시간, 이벤트, 개수]
+            time = parseFloat(r[1]);
+            ev = r[2] || 'F';
+            cnt = parseInt(r[3]) || 1;
+        }
+
+        if (isNaN(time) || time <= 0) continue;
+
+        // 그룹 구분을 위한 고유 키 생성
+        const key = `${temp}_${extraStresses.join('_')}`;
+        if (!groupsMap[key]) {
+            groupsMap[key] = { temp_C: temp, stressValues: extraStresses, failures: [], censored: [] };
+        }
+
+        for (let i = 0; i < cnt; i++) {
+            if (ev === 'F') groupsMap[key].failures.push(time);
+            else groupsMap[key].censored.push(time);
+        }
+    }
+
+    const rawGroups = Object.values(groupsMap);
+    if (rawGroups.length < (isGLL ? p + 1 : 2)) {
+        alert(isGLL 
+            ? `다차원 GLL 분석에는 최소 ${p + 1}개 이상의 서로 다른 스트레스 조합이 필요합니다.` 
+            : "Arrhenius 분석에는 최소 2개 이상의 서로 다른 온도 조건이 필요합니다.");
+        return;
+    }
+
+    const summaryEl = document.getElementById('alt-analysis-summary');
+    summaryEl.innerHTML = `<div class="empty-state"><div class="spinner"></div><div style="margin-top:1rem;font-size:0.9rem">MLE 파라미터 추정 중...</div></div>`;
+
+    setTimeout(() => {
+        try {
+            let result;
+            if (isGLL) {
+                result = ALTAnalysis.fitGLL(rawGroups, _altStresses);
+            } else {
+                result = ALTAnalysis.fitArrhenius(rawGroups);
+            }
+
+            _altResult = result;
+            renderALTSummary(result);
+            document.getElementById('alt-charts-panel').style.display = 'block';
+            setTimeout(() => drawALTAnalysisCharts(result), 150);
+
+        } catch (e) {
+            summaryEl.innerHTML = `<div class="info-box danger">❌ 분석 오류: ${e.message}</div>`;
+            console.error(e);
+        }
+    }, 50);
+}
+
+function renderALTSummary(r) {
+    const isGLL = r.model === 'gll';
+    const summaryEl = document.getElementById('alt-analysis-summary');
+
+    let paramCardHTML = `
+    <div class="grid-2" style="gap:0.75rem;margin-bottom:1rem;width:100%">
+        <div class="stat-card">
+            <div class="label">형상 모수 (β)</div>
+            <div class="value accent">${r.beta.toFixed(4)}</div>
+            <div style="font-size:0.68rem;color:var(--text-muted)">95% CI: [${r.confLimits.betaLower.toFixed(3)} - ${r.confLimits.betaUpper.toFixed(3)}]</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">활성화 에너지 (Ea)</div>
+            <div class="value success">${r.Ea.toFixed(4)} eV</div>
+            <div style="font-size:0.68rem;color:var(--text-muted)">95% CI: [${r.confLimits.eaLower.toFixed(3)} - ${r.confLimits.eaUpper.toFixed(3)}]</div>
+        </div>
+    `;
+
+    if (isGLL && r.confLimits.extraStresses) {
+        r.confLimits.extraStresses.forEach(extra => {
+            paramCardHTML += `
+            <div class="stat-card">
+                <div class="label">${extra.name} 가속 지수 (n)</div>
+                <div class="value warning">${extra.nValue.toFixed(4)}</div>
+                <div style="font-size:0.68rem;color:var(--text-muted)">95% CI: [${extra.nLower.toFixed(3)} - ${extra.nUpper.toFixed(3)}]</div>
+            </div>
+            `;
+        });
+    }
+
+    paramCardHTML += `
+        <div class="stat-card">
+            <div class="label">음의 로그우도 (-LL)</div>
+            <div class="value">${r.negLL.toFixed(3)}</div>
+        </div>
+    </div>`;
+
+    // β값 분석 메세지 추가
+    let betaInterpretation = "";
+    if (r.beta < 0.9) {
+        betaInterpretation = `<div class="info-box warning" style="margin-bottom:1rem">⚠️ 형상모수 β가 1 미만(${r.beta.toFixed(2)})으로 <strong>초기 고장(Infant Mortality)</strong> 형태를 보입니다. 초기 결함이나 제조상의 문제가 있을 수 있습니다.</div>`;
+    } else if (r.beta >= 0.9 && r.beta <= 1.2) {
+        betaInterpretation = `<div class="info-box info" style="margin-bottom:1rem">💡 형상모수 β가 1 부근(${r.beta.toFixed(2)})으로 <strong>우발/랜덤 고장(Random Failure)</strong> 형태를 나타냅니다. 사용 환경의 무작위 스트레스로 고장이 유발됩니다.</div>`;
+    } else {
+        betaInterpretation = `<div class="info-box" style="margin-bottom:1rem">✅ 형상모수 β가 1 초과(${r.beta.toFixed(2)})로 <strong>마모 고장(Wear-out Failure)</strong> 형태를 띱니다. 정상적으로 제품 열화가 진행되고 있음을 뜻합니다.</div>`;
+    }
+
+    // LaTeX 도출 과정 수식 추가
+    let derivLaTeX = '';
+    if (r.model === 'arrhenius') {
+        derivLaTeX = `
+        $$\\begin{aligned}
+        \\ln(\\eta_i) &= a_0 + \\frac{a_1}{T_{K,i}} \\\\
+        &= ${r.a0.toFixed(4)} + \\frac{${r.stressCoefs[0].toFixed(2)}}{T_{C,i} + 273.15} \\\\
+        E_a &= a_1 \\times k = ${r.stressCoefs[0].toFixed(2)} \\times 8.6173 \\times 10^{-5} \\\\
+        &= ${r.Ea.toFixed(4)} \\text{ eV}
+        \\end{aligned}$$`;
+    } else {
+        // GLL인 경우: ln(eta) = a0 + a1/TK + a2 * X2 + a3 * X3...
+        let formulaStr = `\\ln(\\eta_i) &= a_0 + \\frac{a_1}{T_{K,i}}`;
+        let derivationStr = `&= ${r.a0.toFixed(4)} + \\frac{${r.stressCoefs[0].toFixed(2)}}{T_{K,i}}`;
+        let paramsStr = `E_a &= a_1 \\times k = ${r.Ea.toFixed(4)} \\text{ eV} \\\\`;
+        
+        r.confLimits.extraStresses.forEach((extra, idx) => {
+            const coefVal = r.stressCoefs[idx + 1];
+            const spec = r.stressSpecs[idx + 1];
+            const sign = coefVal >= 0 ? '+' : '';
+            
+            if (spec.type === 'log') {
+                formulaStr += ` + a_{${idx+2}} \\ln(\\text{${spec.name}}_i)`;
+                derivationStr += ` ${sign} ${coefVal.toFixed(4)} \\ln(\\text{${spec.name}}_i)`;
+                paramsStr += `n_{\\text{${spec.name}}} &= -a_{${idx+2}} = ${extra.nValue.toFixed(4)} \\\\`;
+            } else if (spec.type === 'linear') {
+                formulaStr += ` + a_{${idx+2}} (\\text{${spec.name}}_i)`;
+                derivationStr += ` ${sign} ${coefVal.toFixed(4)} (\\text{${spec.name}}_i)`;
+                paramsStr += `B_{\\text{${spec.name}}} &= a_{${idx+2}} = ${coefVal.toFixed(4)} \\\\`;
+            } else if (spec.type === 'reciprocal') {
+                formulaStr += ` + \\frac{a_{${idx+2}}}{\\text{${spec.name}}_i}`;
+                derivationStr += ` ${sign} \\frac{${coefVal.toFixed(4)}}{\\text{${spec.name}}_i}`;
+                paramsStr += `C_{\\text{${spec.name}}} &= a_{${idx+2}} = ${coefVal.toFixed(4)} \\\\`;
+            } else {
+                formulaStr += ` + \\frac{a_{${idx+2}}}{\\text{${spec.name}}_{K,i}}`;
+                derivationStr += ` ${sign} \\frac{${coefVal.toFixed(4)}}{\\text{${spec.name}}_{K,i}}`;
+                paramsStr += `E_{a,\\text{${spec.name}}} &= a_{${idx+2}} \\times k = ${(coefVal * 8.6173e-5).toFixed(4)} \\text{ eV} \\\\`;
+            }
+        });
+        
+        derivLaTeX = `
+        $$\\begin{aligned}
+        ${formulaStr} \\\\
+        ${derivationStr} \\\\
+        ${paramsStr}
+        \\end{aligned}$$`;
+    }
+
+    // 설계 적용으로 보낼 대표 가속지수 n 구하기
+    const representativeN = (r.confLimits.extraStresses && r.confLimits.extraStresses.length > 0) 
+        ? r.confLimits.extraStresses[0].nValue 
+        : 0;
+
+    const html = `
+    <h3 class="section-title">📊 가속 파라미터 추정 결과</h3>
+    ${betaInterpretation}
+    ${paramCardHTML}
+
+    <!-- 수식 유도 과정 아코디언 -->
+    <div class="accordion" style="margin-top:0.5rem; width: 100%">
+        <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+            수식 유도 및 도출 과정 (KaTeX)
+            <span class="accordion-arrow">▼</span>
+        </div>
+        <div class="accordion-body">
+            <div style="font-size:0.85rem;line-height:1.5;color:var(--text-secondary)">
+                ${derivLaTeX}
+            </div>
+        </div>
+    </div>
+
+    <!-- 설계 반영 버튼 -->
+    <button class="btn btn-secondary" style="width:100%;margin-top:1rem;font-weight:600" onclick="applyALTParamsToDesign(${r.Ea}, ${representativeN})">
+        ★ 위 가속 파라미터(Ea, n)를 설계 계산기에 적용
+    </button>
+    `;
+
+    summaryEl.innerHTML = html;
+
+    // KaTeX 수식 적용
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(summaryEl, {
+            delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }]
+        });
+    }
+}
+
+function applyALTParamsToDesign(ea, n) {
+    // 1. 설계 파라미터 상태 저장
+    accelerationState.ea = parseFloat(ea.toFixed(4));
+    if (n > 0) {
+        accelerationState.nPeck = parseFloat(n.toFixed(4));
+        accelerationState.nPower = parseFloat(n.toFixed(4));
+    }
+    
+    // 모델 종류 감지하여 적절한 가속시험 설계 모델 선택
+    const model = document.getElementById('alt-model')?.value || 'arrhenius';
+    let targetAccModel = 'arrhenius';
+    
+    if (model === 'gll' && _altStresses.length > 1) {
+        const secondStress = _altStresses[1];
+        if (secondStress.name.includes('습도') || secondStress.name.toLowerCase().includes('rh') || secondStress.name.toLowerCase().includes('humid')) {
+            targetAccModel = 'peck';
+        } else if (secondStress.name.includes('전압') || secondStress.name.toLowerCase().includes('volt')) {
+            targetAccModel = 'inverse_power';
+        } else {
+            targetAccModel = 'inverse_power'; // 기본 폴백
+        }
+    }
+
+    alert(`가속 파라미터가 성공적으로 반영되었습니다!\nEa = ${ea.toFixed(4)} eV${n > 0 ? `, n = ${n.toFixed(4)}` : ''}\n\n가속시험 설계 탭으로 이동합니다.`);
+    
+    // 2. 가속시험 설계 서브탭으로 이동 및 UI 갱신
+    _accSubTab = 'design';
+    const container = document.getElementById('acc-tab-content');
+    if (container) {
+        container.innerHTML = renderAccDesignContent();
+        
+        // 셀렉트 박스 강제 변경
+        const accModelSelect = document.getElementById('acc-model');
+        if (accModelSelect) {
+            accModelSelect.value = targetAccModel;
+        }
+        
+        setTimeout(() => {
+            updateAccModelInputs();
+            runAcceleration();
+        }, 50);
+    }
+}
+
+function drawALTAnalysisCharts(r) {
+    if (!r) return;
+
+    // ─── 1. 수명-스트레스 피팅 관계선 차트 ($1/T_K$ vs $\\ln\\eta$) ───
+    const fitCtx = document.getElementById('alt-chart-fit');
+    if (fitCtx) {
+        // 스트레스 그룹별 대표 eta 값 점으로 표시
+        const points = [];
+        for (const g of r.data) {
+            // 각 그룹별 eta 단독 MLE 계산
+            let tempEta = 1000;
+            if (g.failures.length >= 2) {
+                const all = [...g.failures, ...g.censored];
+                tempEta = all.reduce((a, b) => a + b, 0) / all.length;
+            } else {
+                tempEta = ALTAnalysis.getGroupRepresentativeLife(g.failures, g.censored);
+            }
+            points.push({ x: 1000.0 / g.temp_K, y: Math.log(tempEta), label: `${g.temp_C}°C` });
+        }
+
+        // 피팅 라인 데이터 생성
+        const fitLine = [];
+        const xMin = Math.min(...points.map(p => p.x)) * 0.95;
+        const xMax = Math.max(...points.map(p => p.x)) * 1.05;
+        
+        for (let x = xMin; x <= xMax; x += (xMax - xMin) / 50) {
+            const tempK = 1000.0 / x;
+            // GLL인 경우 정의된 각 추가 스트레스의 평균값 적용
+            let logEta = r.a0 + r.stressCoefs[0] / tempK;
+            if (r.model === 'gll') {
+                for (let i = 1; i < r.stressSpecs.length; i++) {
+                    const spec = r.stressSpecs[i];
+                    // 그룹들의 해당 차원 값들의 평균 (g.rawStresses[0]은 온도이므로 g.rawStresses[i]가 추가 스트레스 값)
+                    const vals = r.data.map(g => (g.rawStresses && g.rawStresses[i] !== undefined) ? g.rawStresses[i] : 1.0);
+                    const avgVal = vals.reduce((a, b) => a + b, 0) / vals.length;
+                    
+                    if (spec.type === 'log') {
+                        logEta += r.stressCoefs[i] * Math.log(avgVal);
+                    } else if (spec.type === 'linear') {
+                        logEta += r.stressCoefs[i] * avgVal;
+                    } else if (spec.type === 'reciprocal') {
+                        logEta += r.stressCoefs[i] / avgVal;
+                    } else if (spec.type === 'reciprocal_k') {
+                        logEta += r.stressCoefs[i] / (avgVal + 273.15);
+                    }
+                }
+            }
+            fitLine.push({ x: x, y: logEta });
+        }
+
+        ChartManager.createOrUpdate('alt-chart-fit', {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: '그룹별 대표 수명 (점)',
+                        data: points,
+                        backgroundColor: '#ef4444',
+                        pointRadius: 6,
+                        pointHoverRadius: 8
+                    },
+                    {
+                        label: '모델 피팅선 (실선)',
+                        data: fitLine,
+                        type: 'line',
+                        borderColor: '#38bdf8',
+                        borderWidth: 2,
+                        fill: false,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#94a3b8' } },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const tempC = (1000.0 / ctx.parsed.x - 273.15).toFixed(1);
+                                return `1000/T_K: ${ctx.parsed.x.toFixed(4)} (${tempC}°C), ln(η): ${ctx.parsed.y.toFixed(3)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: '1000 / T_K (1/Kelvin)', color: '#64748b' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
+                    },
+                    y: {
+                        title: { display: true, text: 'ln (척도모수 η)', color: '#64748b' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
+                    }
+                }
+            }
+        });
+    }
+
+    // ─── 2. 사용 조건 수명 곡선 차트 (R(t) & F(t)) ───
+    const probCtx = document.getElementById('alt-chart-probability');
+    if (probCtx) {
+        // 사용 조건 설정에 기반한 사용 수명 계산
+        const useTemp = r.stressSpecs[0].useVal;
+        const tUseK = useTemp + 273.15;
+        let etaUse = Math.exp(r.a0 + r.stressCoefs[0] / tUseK);
+
+        if (r.model === 'gll') {
+            for (let i = 1; i < r.stressSpecs.length; i++) {
+                const spec = r.stressSpecs[i];
+                const uVal = spec.useVal;
+                if (spec.type === 'log') {
+                    etaUse *= Math.pow(uVal, r.stressCoefs[i]);
+                } else if (spec.type === 'linear') {
+                    etaUse *= Math.exp(r.stressCoefs[i] * uVal);
+                } else if (spec.type === 'reciprocal') {
+                    etaUse *= Math.exp(r.stressCoefs[i] / uVal);
+                } else if (spec.type === 'reciprocal_k') {
+                    etaUse *= Math.exp(r.stressCoefs[i] / (uVal + 273.15));
+                }
+            }
+        }
+
+        const rtData = [];
+        const ftData = [];
+        const tMax = etaUse * 2.0;
+
+        for (let t = 0; t <= tMax; t += tMax / 100) {
+            const R_t = Math.exp(-Math.pow(t / etaUse, r.beta));
+            rtData.push({ x: t, y: R_t });
+            ftData.push({ x: t, y: 1 - R_t });
+        }
+
+        ChartManager.createOrUpdate('alt-chart-probability', {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: `신뢰도 R(t) (사용 환경 ${useTemp}°C 기준)`,
+                        data: rtData,
+                        borderColor: '#22c55e',
+                        borderWidth: 2,
+                        fill: false,
+                        pointRadius: 0
+                    },
+                    {
+                        label: `불신뢰도 F(t) (사용 환경 ${useTemp}°C 기준)`,
+                        data: ftData,
+                        borderColor: '#ef4444',
+                        borderWidth: 2,
+                        fill: false,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#94a3b8' } }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: { display: true, text: '시간 (hrs)', color: '#64748b' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
+                    },
+                    y: {
+                        min: 0,
+                        max: 1.0,
+                        title: { display: true, text: '확률', color: '#64748b' },
+                        ticks: { color: '#64748b', callback: v => (v*100).toFixed(0) + '%' },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
+                    }
+                }
+            }
+        });
+    }
+}
+
+// 스마트 클립보드 붙여넣기 모달 오픈
+function openAltPasteModal() {
+    closeAltPasteModal();
+
+    const modal = document.createElement('div');
+    modal.id = 'alt-paste-modal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.background = 'rgba(15, 23, 42, 0.8)';
+    modal.style.display = 'flex';
+    modal.style.justifyContent = 'center';
+    modal.style.alignItems = 'center';
+    modal.style.zIndex = '10000';
+
+    modal.innerHTML = `
+    <div class="glass-card" style="width:90%; max-width:500px; padding:1.5rem; border:1px solid var(--border-color); background:var(--bg-secondary); border-radius:12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3)">
+        <h3 class="section-title" style="margin-top:0; color:var(--text-primary)">📋 엑셀 데이터 붙여넣기</h3>
+        <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:1rem; line-height:1.4">
+            엑셀 시트에서 헤더를 포함해 데이터(온도, 수명, 이벤트 등)를 복사한 후 아래 영역에 붙여넣으세요. 구분자와 F/C 이벤트(고장/중단)가 자동 판정 및 표준화되어 테이블에 적용됩니다.
+        </p>
+        <textarea id="alt-paste-textarea" style="width:100%; height:180px; background:var(--bg-primary); border:1px solid var(--border-color); border-radius:8px; color:var(--text-primary); padding:0.6rem; font-family:monospace; font-size:0.8rem; resize:none; outline:none" placeholder="이곳에 복사한 데이터를 붙여넣기(Ctrl+V) 하세요..."></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem">
+            <button class="btn btn-secondary" onclick="closeAltPasteModal()">취소</button>
+            <button class="btn btn-primary" onclick="applyAltSmartParse()">가져오기 및 적용</button>
+        </div>
+    </div>`;
+
+    document.body.appendChild(modal);
+}
+
+function closeAltPasteModal() {
+    const modal = document.getElementById('alt-paste-modal');
+    if (modal) modal.remove();
+}
+
+function applyAltSmartParse() {
+    const text = document.getElementById('alt-paste-textarea')?.value;
+    if (!text || text.trim() === '') {
+        alert("붙여넣은 텍스트가 없습니다.");
+        return;
+    }
+
+    try {
+        const parsed = SmartParser.parse(text);
+        if (!parsed.rows || parsed.rows.length === 0) {
+            alert("파싱된 데이터 행이 없습니다. 열 형식이나 공백 구분을 확인하세요.");
+            return;
+        }
+
+        const model = document.getElementById('alt-model').value;
+        const isGLL = model === 'gll';
+        const p = _altStresses.length;
+        const expectedCols = isGLL ? p + 3 : 4;
+
+        const formattedData = parsed.rows.map(row => {
+            const newRow = Array(expectedCols).fill(null);
+            if (isGLL) {
+                // [온도, 스트레스2, ..., 시간, 이벤트, 개수]
+                for (let i = 0; i < p; i++) {
+                    newRow[i] = typeof row[i] === 'number' ? row[i] : null;
+                }
+                newRow[p] = typeof row[p] === 'number' ? row[p] : null;
+                newRow[p + 1] = (row[p + 1] === 'F' || row[p + 1] === 'C') ? row[p + 1] : 'F';
+                newRow[p + 2] = typeof row[p + 2] === 'number' ? row[p + 2] : 1;
+            } else {
+                // [온도, 시간, 이벤트, 개수]
+                newRow[0] = typeof row[0] === 'number' ? row[0] : null;
+                newRow[1] = typeof row[1] === 'number' ? row[1] : null;
+                newRow[2] = (row[2] === 'F' || row[2] === 'C') ? row[2] : 'F';
+                newRow[3] = typeof row[3] === 'number' ? row[3] : 1;
+            }
+            return newRow;
+        }).filter(r => r[0] !== null); // 온도 값이 유효한 행들만 취함
+
+        if (formattedData.length === 0) {
+            alert("유효한 숫자 데이터 행이 발견되지 않았습니다. 데이터를 다시 확인하세요.");
+            return;
+        }
+
+        if (_altHot) {
+            _altHot.loadData(formattedData);
+        }
+        
+        closeAltPasteModal();
+        alert(`성공적으로 ${formattedData.length}개의 데이터 행을 스마트 파싱하여 가져왔습니다!`);
+
+    } catch (e) {
+        alert(`데이터 파싱 실패: ${e.message}`);
+    }
+}
+
+
 
