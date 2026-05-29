@@ -106,43 +106,111 @@ const ChartManager = {
      * @param {number} n - 시료수
      * @param {number} c - 허용 고장수
      */
-    drawOCCurve(canvasId, data, n, c) {
+    drawOCCurve(canvasId, data, n, c, targetP = null, targetBeta = null) {
+        const datasets = [{
+            label: `OC Curve (n=${n}, c=${c})`,
+            data: data.map(d => ({ x: d.p * 100, y: d.pa })),
+            borderColor: CONSTANTS.CHART_COLORS.accent,
+            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2.5,
+        }];
+
+        const maxP = data.length > 0 ? data[data.length - 1].p * 100 : 100;
+
+        // 설계 기준점 및 가이드 라인 추가
+        if (targetP !== null && targetBeta !== null) {
+            // 수평선 (소비자 위험 Beta)
+            datasets.push({
+                label: `소비자 위험 (β = ${(targetBeta * 100).toFixed(0)}%)`,
+                data: [{ x: 0, y: targetBeta }, { x: maxP, y: targetBeta }],
+                borderColor: 'rgba(239, 68, 68, 0.65)',
+                borderDash: [5, 5],
+                pointRadius: 0,
+                borderWidth: 1.5,
+                fill: false,
+                showLine: true
+            });
+
+            // 수직선 (허용 불량률 p)
+            datasets.push({
+                label: `허용 불량률 (p = ${targetP.toFixed(2)}%)`,
+                data: [{ x: targetP, y: 0 }, { x: targetP, y: 1 }],
+                borderColor: 'rgba(239, 68, 68, 0.65)',
+                borderDash: [5, 5],
+                pointRadius: 0,
+                borderWidth: 1.5,
+                fill: false,
+                showLine: true
+            });
+
+            // 교점
+            datasets.push({
+                label: `설계 보증점`,
+                data: [{ x: targetP, y: targetBeta }],
+                borderColor: '#ef4444',
+                backgroundColor: '#ef4444',
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                showLine: false
+            });
+        }
+
         this.createOrUpdate(canvasId, {
             type: 'line',
-            data: {
-                labels: data.map(d => (d.p * 100).toFixed(1)),
-                datasets: [{
-                    label: `OC Curve (n=${n}, c=${c})`,
-                    data: data.map(d => d.pa),
-                    borderColor: CONSTANTS.CHART_COLORS.accent,
-                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 0,
-                    borderWidth: 2,
-                }]
-            },
+            data: { datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                parsing: false,
                 plugins: {
-                    legend: { display: true, position: 'top' },
+                    legend: { 
+                        display: true, 
+                        position: 'top',
+                        labels: {
+                            filter: (legendItem) => {
+                                // 수평/수직 가이드선 범례는 제외하고 주요 곡선과 보증점만 노출
+                                return legendItem.datasetIndex === 0 || legendItem.datasetIndex === 3;
+                            }
+                        }
+                    },
                     tooltip: {
                         callbacks: {
-                            title: (items) => `불량률: ${items[0].label}%`,
-                            label: (item) => `합격 확률: ${(item.raw * 100).toFixed(1)}%`
+                            label: (ctx) => {
+                                const p = ctx.parsed.x;
+                                const pa = ctx.parsed.y;
+                                if (ctx.datasetIndex === 3) {
+                                    return `보증 타겟: 불량률 ${p.toFixed(2)}%, 합격확률(β) ${(pa * 100).toFixed(1)}%`;
+                                }
+                                if (ctx.datasetIndex > 0) return null; // 가이드라인 툴팁 제외
+                                const consumerRisk = pa;
+                                const producerRisk = 1 - pa;
+                                return [
+                                    `합격 확률 (Pa): ${(pa * 100).toFixed(1)}%`,
+                                    `소비자 위험 (LTPD 합격 확률): ${(consumerRisk * 100).toFixed(1)}%`,
+                                    `생산자 위험 (양품 불합격 확률): ${(producerRisk * 100).toFixed(1)}%`
+                                ];
+                            }
                         }
                     }
                 },
                 scales: {
                     x: {
-                        title: { display: true, text: '불량률 p (%)' },
-                        ticks: { maxTicksLimit: 10 }
+                        type: 'linear',
+                        title: { display: true, text: '불량률 p (%)', color: '#64748b' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
                     },
                     y: {
-                        title: { display: true, text: '합격 확률 Pa' },
+                        title: { display: true, text: '합격 확률 Pa', color: '#64748b' },
                         min: 0, max: 1,
-                        ticks: { callback: v => (v * 100).toFixed(0) + '%' }
+                        ticks: { 
+                            color: '#64748b',
+                            callback: v => (v * 100).toFixed(0) + '%' 
+                        },
+                        grid: { color: 'rgba(148,163,184,0.08)' }
                     }
                 }
             }

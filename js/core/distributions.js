@@ -250,6 +250,31 @@ const Distributions = (() => {
         }
         return -ll;
       };
+    },
+
+    negLogLikelihoodArbitrary: (data) => {
+      return (params) => {
+        const alpha = Math.exp(params[0]);
+        const beta  = Math.exp(params[1]);
+        if (alpha <= 0 || beta <= 0) return 1e30;
+        let ll = 0;
+        const eps = 1e-15;
+        for (let i = 0; i < data.length; i++) {
+          const { start, end, count } = data[i];
+          if (start === end) {
+            if (start <= 0) return 1e30;
+            const ta = start / alpha;
+            ll += count * (Math.log(beta) - Math.log(alpha) + (beta - 1) * Math.log(ta) - Math.pow(ta, beta));
+          } else if (end === Infinity || isNaN(end) || end === null || end === '*') {
+            ll -= count * Math.pow(start / alpha, beta);
+          } else {
+            const fEnd = 1 - Math.exp(-Math.pow(end / alpha, beta));
+            const fStart = start <= 0 ? 0 : 1 - Math.exp(-Math.pow(start / alpha, beta));
+            ll += count * Math.log(Math.max(fEnd - fStart, eps));
+          }
+        }
+        return -ll;
+      };
     }
   };
 
@@ -325,6 +350,33 @@ const Distributions = (() => {
         }
         return -ll;
       };
+    },
+
+    negLogLikelihoodArbitrary: (data) => {
+      return (params) => {
+        const mu = params[0];
+        const sigma = Math.exp(params[1]);
+        if (sigma <= 0) return 1e30;
+        let ll = 0;
+        const eps = 1e-15;
+        const lnSigma = Math.log(sigma);
+        for (let i = 0; i < data.length; i++) {
+          const { start, end, count } = data[i];
+          if (start === end) {
+            if (start <= 0) return 1e30;
+            const z = (Math.log(start) - mu) / sigma;
+            ll += count * (-Math.log(start) - lnSigma - 0.5 * (LOG2PI + z * z));
+          } else if (end === Infinity || isNaN(end) || end === null || end === '*') {
+            const sfVal = Lognormal.sf(start, mu, sigma);
+            ll += count * Math.log(Math.max(sfVal, eps));
+          } else {
+            const fEnd = Lognormal.cdf(end, mu, sigma);
+            const fStart = start <= 0 ? 0 : Lognormal.cdf(start, mu, sigma);
+            ll += count * Math.log(Math.max(fEnd - fStart, eps));
+          }
+        }
+        return -ll;
+      };
     }
   };
 
@@ -390,6 +442,32 @@ const Distributions = (() => {
           const count = cEntries[i][1];
           const sfVal = Normal.sf(t, mu, sigma);
           ll += count * Math.log(Math.max(sfVal, 1e-15));
+        }
+        return -ll;
+      };
+    },
+
+    negLogLikelihoodArbitrary: (data) => {
+      return (params) => {
+        const mu = params[0];
+        const sigma = Math.exp(params[1]);
+        if (sigma <= 0) return 1e30;
+        let ll = 0;
+        const eps = 1e-15;
+        const lnSigma = Math.log(sigma);
+        for (let i = 0; i < data.length; i++) {
+          const { start, end, count } = data[i];
+          if (start === end) {
+            const z = (start - mu) / sigma;
+            ll += count * (-lnSigma - 0.5 * (LOG2PI + z * z));
+          } else if (end === Infinity || isNaN(end) || end === null || end === '*') {
+            const sfVal = Normal.sf(start, mu, sigma);
+            ll += count * Math.log(Math.max(sfVal, eps));
+          } else {
+            const fEnd = Normal.cdf(end, mu, sigma);
+            const fStart = Normal.cdf(start, mu, sigma);
+            ll += count * Math.log(Math.max(fEnd - fStart, eps));
+          }
         }
         return -ll;
       };
@@ -459,6 +537,111 @@ const Distributions = (() => {
         }
         return -ll;
       };
+    },
+
+    negLogLikelihoodArbitrary: (data) => {
+      return (params) => {
+        const lambda = Math.exp(params[0]);
+        if (lambda <= 0) return 1e30;
+        let ll = 0;
+        const eps = 1e-15;
+        const lnLambda = Math.log(lambda);
+        for (let i = 0; i < data.length; i++) {
+          const { start, end, count } = data[i];
+          if (start === end) {
+            if (start <= 0) return 1e30;
+            ll += count * (lnLambda - lambda * start);
+          } else if (end === Infinity || isNaN(end) || end === null || end === '*') {
+            ll -= count * lambda * start;
+          } else {
+            const fEnd = Exponential.cdf(end, lambda);
+            const fStart = start <= 0 ? 0 : Exponential.cdf(start, lambda);
+            ll += count * Math.log(Math.max(fEnd - fStart, eps));
+          }
+        }
+        return -ll;
+      };
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Weibull Mixture (Mixed Weibull) 분포
+  // ─────────────────────────────────────────────
+  const WeibullMixture = {
+    cdf(t, p, alpha1, beta1, alpha2, beta2) {
+      if (t <= 0) return 0;
+      const cdf1 = 1 - Math.exp(-Math.pow(t / alpha1, beta1));
+      const cdf2 = 1 - Math.exp(-Math.pow(t / alpha2, beta2));
+      return p * cdf1 + (1 - p) * cdf2;
+    },
+
+    sf(t, p, alpha1, beta1, alpha2, beta2) {
+      return 1 - this.cdf(t, p, alpha1, beta1, alpha2, beta2);
+    },
+
+    pdf(t, p, alpha1, beta1, alpha2, beta2) {
+      if (t <= 0) return 0;
+      const pdf1 = (beta1 / alpha1) * Math.pow(t / alpha1, beta1 - 1) * Math.exp(-Math.pow(t / alpha1, beta1));
+      const pdf2 = (beta2 / alpha2) * Math.pow(t / alpha2, beta2 - 1) * Math.exp(-Math.pow(t / alpha2, beta2));
+      return p * pdf1 + (1 - p) * pdf2;
+    },
+
+    hf(t, p, alpha1, beta1, alpha2, beta2) {
+      const sf = this.sf(t, p, alpha1, beta1, alpha2, beta2);
+      if (sf < 1e-10) {
+        return this.pdf(t, p, alpha1, beta1, alpha2, beta2) / 1e-10;
+      }
+      return this.pdf(t, p, alpha1, beta1, alpha2, beta2) / sf;
+    },
+
+    mttf(p, alpha1, beta1, alpha2, beta2) {
+      const mttf1 = alpha1 * gamma(1 + 1 / beta1);
+      const mttf2 = alpha2 * gamma(1 + 1 / beta2);
+      return p * mttf1 + (1 - p) * mttf2;
+    },
+
+    negLogLikelihoodArbitrary(arbitraryData) {
+      return (x) => {
+        const p = 1 / (1 + Math.exp(-x[0]));
+        const alpha1 = Math.exp(x[1]);
+        const beta1  = Math.exp(x[2]);
+        const alpha2 = Math.exp(x[3]);
+        const beta2  = Math.exp(x[4]);
+
+        let sum = 0;
+        const len = arbitraryData.length;
+        for (let i = 0; i < len; i++) {
+          const row = arbitraryData[i];
+          const count = row.count || 1;
+          if (row.start === row.end) {
+            const val = this.pdf(row.start, p, alpha1, beta1, alpha2, beta2);
+            sum += count * Math.log(Math.max(val, 1e-15));
+          } else if (row.end === Infinity) {
+            const val = this.sf(row.start, p, alpha1, beta1, alpha2, beta2);
+            sum += count * Math.log(Math.max(val, 1e-15));
+          } else {
+            const val = this.cdf(row.end, p, alpha1, beta1, alpha2, beta2) - 
+                        this.cdf(row.start, p, alpha1, beta1, alpha2, beta2);
+            sum += count * Math.log(Math.max(val, 1e-15));
+          }
+        }
+        return -sum;
+      };
+    },
+
+    negLogLikelihoodLog(failures, censored) {
+      const arbitraryData = failures.map(t => ({ start: t, end: t, count: 1 }))
+        .concat(censored.map(t => ({ start: t, end: Infinity, count: 1 })));
+      return this.negLogLikelihoodArbitrary(arbitraryData);
+    },
+
+    logLikelihood(failures, censored, p, alpha1, beta1, alpha2, beta2) {
+      const x0 = Math.log(p / (1 - p));
+      const x1 = Math.log(alpha1);
+      const x2 = Math.log(beta1);
+      const x3 = Math.log(alpha2);
+      const x4 = Math.log(beta2);
+      return -this.negLogLikelihoodLog(failures, censored)([x0, x1, x2, x3, x4]);
     }
   };
 
@@ -466,7 +649,6 @@ const Distributions = (() => {
   // AICc, BIC 계산
   // Ref: Burnham & Anderson (2002), "Model Selection"
   // AICc = -2*LL + 2k + 2k(k+1)/(n-k-1)
-  // BIC  = -2*LL + k*ln(n)
   // ─────────────────────────────────────────────
   function computeAICc(ll, k, n) {
     const aic = -2 * ll + 2 * k;
@@ -510,6 +692,7 @@ const Distributions = (() => {
     Lognormal,
     Normal,
     Exponential,
+    WeibullMixture,
     normalCDF,
     normalPPF,
     chi2CDF,

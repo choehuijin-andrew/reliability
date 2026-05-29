@@ -217,6 +217,7 @@ const ALTAnalysis = {
             beta,
             a0,
             a1,
+            stressCoefs: [a1],
             Ea,
             optParams: opt.x,
             covMatrix,

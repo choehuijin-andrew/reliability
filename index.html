@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="RE-Suite: 신뢰성 공학 분석 도구. Weibull 분석, 시료수 계획, 가속 수명 시험, Warranty 분석을 브라우저에서 직접 수행합니다.">
     <title>REA — Reliability Engineering Analytics</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,6 +26,9 @@
 
     <!-- SheetJS (Excel 파싱) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- html2canvas (DOM 이미지 캡처) -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
     <!-- Handsontable CE (데이터 그리드) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.css">
@@ -108,6 +112,7 @@
     <script src="js/modules/alt-analysis.js?v=3"></script>
     <script src="js/modules/warranty.js?v=5"></script>
     <script src="js/modules/degradation.js?v=2"></script>
+    <script src="js/modules/adt.js?v=1"></script>
     <script src="js/modules/reliability-analysis.js?v=7"></script>
     <script src="js/app.js?v=10"></script>
 </body>

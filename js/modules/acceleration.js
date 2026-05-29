@@ -403,6 +403,40 @@ const Acceleration = {
                 formula: "AF = \\left(\\frac{5.0}{3.3}\\right)^7",
                 setInputsFunc: "applyVerificationInputs('inverse_power', { 'acc-v-use': 3.3, 'acc-v-stress': 5.0, 'acc-n-power': 7.0 })"
             }
+        },
+        eyring: {
+            title: "Eyring (온도+비열스트레스) 모델 레퍼런스 & 검증",
+            modelName: "Eyring (온도+비열스트레스)",
+            parameters: [
+                { symbol: "B = 0.5 ~ 2.0", name: "반도체 소자 전압 스트레스 계수", range: "0.5 ~ 2.0", source: "JEDEC JEP122G / JESD91A", details: "TDDB 등 전압 가속 시험 시 비열 스트레스(전압) 가속 상수" },
+                { symbol: "B = 0.044", name: "패키지 상대습도 가속 계수", range: "0.03 ~ 0.05", source: "Peck(1986) / MIL-HDBK-338B", details: "HAST 습도 가속을 Eyring 지수형으로 근사할 때의 대표 계수" },
+                { symbol: "Ea = 0.7 eV", name: "반도체 소자 열 활성화 에너지", range: "0.5 ~ 0.9 eV", source: "JEDEC JESD91A / MIL-338B", details: "Eyring 모델 내의 기본 열 가속 활성화 에너지" }
+            ],
+            verification: {
+                source: "JEP122G (Failure Mechanisms and Models for Semiconductor Devices)",
+                scenario: "사용 55°C / 1.0V, 가속 125°C / 1.5V, Ea = 0.7 eV, 비열 스트레스 계수 B = 1.2 조건",
+                inputs: { useTemp: 55, stressTemp: 125, ea: 0.7, b: 1.2, useS: 1.0, stressS: 1.5 },
+                targetVal: 116.6167,
+                formula: "AF = \\frac{T_{use}}{T_{stress}} \\cdot \\exp\\left( \\frac{0.7}{k} \\left( \\frac{1}{T_{use}} - \\frac{1}{T_{stress}} \\right) \\right) \\cdot \\exp\\left( 1.2 \\cdot (S_{stress} - S_{use}) \\right)",
+                setInputsFunc: "applyVerificationInputs('eyring', { 'acc-t-use': 55, 'acc-t-stress': 125, 'acc-ea': 0.7, 'acc-eyring-b': 1.2, 'acc-eyring-s-use': 1.0, 'acc-eyring-s-stress': 1.5 })"
+            }
+        },
+        norris_landzberg: {
+            title: "Norris-Landzberg (열 사이클 및 주파수) 모델 레퍼런스 & 검증",
+            modelName: "Norris-Landzberg (열사이클)",
+            parameters: [
+                { symbol: "m = 1.9", name: "SnPb 솔더 접합부 피로", range: "1.8 ~ 2.0", source: "IPC-9701A / Norris(1969)", details: "SnPb 공정 접합부의 열피로 지수 기본값" },
+                { symbol: "m = 2.2", name: "SAC305 무연 솔더 피로", range: "2.1 ~ 2.5", source: "JEDEC JESD91A / IPC-9701A", details: "SAC305 등 무연 합금 접합부의 온도 순환 가속 지수" },
+                { symbol: "Ea = 0.123 eV", name: "솔더 열 피로 활성화 에너지", range: "0.12 ~ 0.13 eV", source: "IPC-9701A / Norris-Landzberg", details: "온도 순환 피로 수명 산정의 최고 온도 보정 활성화 에너지" }
+            ],
+            verification: {
+                source: "IPC-9701A (Performance Test Methods for Solder Attachments)",
+                scenario: "사용 ΔTu=20°C / fu=1 cpd / Tu_max=50°C, 가속 ΔTs=100°C / fs=24 cpd / Ts_max=125°C, m=1.9, Ea=0.123 eV",
+                inputs: { m: 1.9, fUse: 1.0, fStress: 24.0, dtUse: 20, dtStress: 100, tMaxUse: 50, tMaxStress: 125, ea: 0.123 },
+                targetVal: 17.1150,
+                formula: "AF = \\left(\\frac{f_{use}}{f_{stress}}\\right)^{0.33} \\cdot \\left(\\frac{\\Delta T_{stress}}{\\Delta T_{use}}\\right)^m \\cdot \\exp\\left( \\frac{E_a}{k} \\left( \\frac{1}{T_{max, use}} - \\frac{1}{T_{max, stress}} \\right) \\right)",
+                setInputsFunc: "applyVerificationInputs('norris_landzberg', { 'acc-dt-use': 20, 'acc-dt-stress': 100, 'acc-m': 1.9, 'acc-nl-rampup-use': 360, 'acc-nl-dwellhigh-use': 360, 'acc-nl-rampdown-use': 360, 'acc-nl-dwelllow-use': 360, 'acc-nl-rampup-stress': 30, 'acc-nl-dwellhigh-stress': 30, 'acc-nl-rampdown-stress': 30, 'acc-nl-dwelllow-stress': 30, 'acc-nl-tmax-use': 50, 'acc-nl-tmax-stress': 125, 'acc-nl-ea': 0.123 })"
+            }
         }
     }
 };

@@ -146,8 +146,26 @@ const Statistics = (() => {
       const seW = seP / (pc * (1 - pc));
       const wL  = w - zScore * seW;
       const wU  = w + zScore * seW;
-      lower.push(Math.exp(wL) / (1 + Math.exp(wL)));
-      upper.push(Math.exp(wU) / (1 + Math.exp(wU)));
+
+      let lVal, uVal;
+      if (wL < -700) {
+        lVal = 0;
+      } else if (wL > 700) {
+        lVal = 1;
+      } else {
+        lVal = Math.exp(wL) / (1 + Math.exp(wL));
+      }
+
+      if (wU < -700) {
+        uVal = 0;
+      } else if (wU > 700) {
+        uVal = 1;
+      } else {
+        uVal = Math.exp(wU) / (1 + Math.exp(wU));
+      }
+
+      lower.push(lVal);
+      upper.push(uVal);
     }
     return { lower, upper };
   }
@@ -157,33 +175,135 @@ const Statistics = (() => {
   // Ref: Meeker & Escobar (1998), Section 7.3, Eq. 7.17
   //   se(ln h) ≈ 1/sqrt(n_failures)
   // ─────────────────────────────────────────────
+  function computeHazardCI(fitDist, params, cov, tVals, zScore) {
+    const lower = [], upper = [];
+    if (!cov) {
+      return { lower: tVals.map(() => 0), upper: tVals.map(() => 0) };
+    }
+
+    const eps = 1e-5;
+    const D = Distributions;
+
+    // 분포별 h(t) 함수
+    let hFn;
+    let optParams; // [p1, p2]
+    if (fitDist === 'weibull') {
+      hFn = (t, p) => D.Weibull.hf(t, Math.exp(p[0]), Math.exp(p[1]));
+      optParams = [Math.log(params.alpha), Math.log(params.beta)];
+    } else if (fitDist === 'lognormal') {
+      hFn = (t, p) => D.Lognormal.hf(t, p[0], Math.exp(p[1]));
+      optParams = [params.mu, Math.log(params.sigma)];
+    } else if (fitDist === 'normal') {
+      hFn = (t, p) => D.Normal.hf(t, p[0], Math.exp(p[1]));
+      optParams = [params.mu, Math.log(params.sigma)];
+    } else if (fitDist === 'exponential') {
+      hFn = (t, p) => D.Exponential.hf(t, Math.exp(p[0]));
+      optParams = [Math.log(params.lambda)];
+    } else {
+      return { lower: tVals.map(() => 0), upper: tVals.map(() => 0) };
+    }
+
+    for (const t of tVals) {
+      if (t <= 0) {
+        lower.push(0);
+        upper.push(0);
+        continue;
+      }
+
+      const hVal = hFn(t, optParams);
+      const lnH = Math.log(Math.max(hVal, 1e-15));
+
+      // 수치 미분 gradient d = d(ln h)/d(p)
+      const d = [];
+      for (let i = 0; i < optParams.length; i++) {
+        const pPlus = optParams.slice();
+        pPlus[i] += eps;
+        const hPlus = hFn(t, pPlus);
+        const lnHPlus = Math.log(Math.max(hPlus, 1e-15));
+
+        const pMinus = optParams.slice();
+        pMinus[i] -= eps;
+        const hMinus = hFn(t, pMinus);
+        const lnHMinus = Math.log(Math.max(hMinus, 1e-15));
+
+        d.push((lnHPlus - lnHMinus) / (2 * eps));
+      }
+
+      // 분산계산: var(ln h) = d^T * cov * d
+      let varLnH = 0;
+      if (optParams.length === 2) {
+        varLnH = d[0]*d[0]*cov[0][0] + d[1]*d[1]*cov[1][1] + 2*d[0]*d[1]*cov[0][1];
+      } else {
+        varLnH = d[0]*d[0]*cov[0][0];
+      }
+
+      const seLnH = Math.sqrt(Math.max(varLnH, 0));
+      const wL = lnH - zScore * seLnH;
+      const wU = lnH + zScore * seLnH;
+
+      lower.push(Math.exp(wL));
+      upper.push(Math.exp(wU));
+    }
+
+    return { lower, upper };
+  }
+
+  // 예전의 hazardLogCI는 호환성 유지를 위해 간단히 둠 (필요시 호출 방지)
   function hazardLogCI(hfVals, nFailures, zScore) {
     const nF = Math.max(nFailures, 1);
     const seLnH = 1 / Math.sqrt(nF);
-    const lower = hfVals.map(h => Math.max(h * Math.exp(-zScore * seLnH), 0));
-    const upper = hfVals.map(h => h * Math.exp(zScore * seLnH));
+    const lower = hfVals.map(h => {
+      const val = h * Math.exp(-zScore * seLnH);
+      return isFinite(val) ? Math.max(val, 0) : 0;
+    });
+    const upper = hfVals.map(h => {
+      const val = h * Math.exp(zScore * seLnH);
+      return isFinite(val) ? val : 0;
+    });
     return { lower, upper };
   }
 
   function computeFisherCI(failures, censored, fitDist, params, confidence) {
-    if (failures.length < MIN_SAMPLE_FOR_MLE) return null;
+    // arbitraryData 형태인지 확인
+    const isArbitrary = Array.isArray(failures) && failures.length > 0 && typeof failures[0] === 'object' && ('start' in failures[0]);
+    
+    if (!isArbitrary && failures.length < MIN_SAMPLE_FOR_MLE) return null;
 
     try {
       let optParams, negLL;
-      if (fitDist === 'weibull') {
-        optParams = [Math.log(params.alpha), Math.log(params.beta)];
-        negLL = Distributions.Weibull.negLogLikelihoodLog(failures, censored);
-      } else if (fitDist === 'lognormal') {
-        optParams = [params.mu, Math.log(params.sigma)];
-        negLL = Distributions.Lognormal.negLogLikelihoodLog(failures, censored);
-      } else if (fitDist === 'normal') {
-        optParams = [params.mu, Math.log(params.sigma)];
-        negLL = Distributions.Normal.negLogLikelihoodLog(failures, censored);
-      } else if (fitDist === 'exponential') {
-        optParams = [Math.log(params.lambda)];
-        negLL = Distributions.Exponential.negLogLikelihoodLog(failures, censored);
+      if (isArbitrary) {
+        const arbitraryData = failures;
+        if (fitDist === 'weibull') {
+          optParams = [Math.log(params.alpha), Math.log(params.beta)];
+          negLL = Distributions.Weibull.negLogLikelihoodArbitrary(arbitraryData);
+        } else if (fitDist === 'lognormal') {
+          optParams = [params.mu, Math.log(params.sigma)];
+          negLL = Distributions.Lognormal.negLogLikelihoodArbitrary(arbitraryData);
+        } else if (fitDist === 'normal') {
+          optParams = [params.mu, Math.log(params.sigma)];
+          negLL = Distributions.Normal.negLogLikelihoodArbitrary(arbitraryData);
+        } else if (fitDist === 'exponential') {
+          optParams = [Math.log(params.lambda)];
+          negLL = Distributions.Exponential.negLogLikelihoodArbitrary(arbitraryData);
+        } else {
+          return null;
+        }
       } else {
-        return null;
+        if (fitDist === 'weibull') {
+          optParams = [Math.log(params.alpha), Math.log(params.beta)];
+          negLL = Distributions.Weibull.negLogLikelihoodLog(failures, censored);
+        } else if (fitDist === 'lognormal') {
+          optParams = [params.mu, Math.log(params.sigma)];
+          negLL = Distributions.Lognormal.negLogLikelihoodLog(failures, censored);
+        } else if (fitDist === 'normal') {
+          optParams = [params.mu, Math.log(params.sigma)];
+          negLL = Distributions.Normal.negLogLikelihoodLog(failures, censored);
+        } else if (fitDist === 'exponential') {
+          optParams = [Math.log(params.lambda)];
+          negLL = Distributions.Exponential.negLogLikelihoodLog(failures, censored);
+        } else {
+          return null;
+        }
       }
 
       const H = MathEngine.numericalHessian(negLL, optParams, 1e-5);
@@ -427,7 +547,8 @@ const Statistics = (() => {
   // 지원 분포: Weibull (η,β), Lognormal (μ,σ)
   // ─────────────────────────────────────────────
   function computeContourPlot(failures, censored, param1Hat, param2Hat, confidence, distType) {
-    if (failures.length < MIN_SAMPLE_FOR_MLE) return null;
+    const isArbitrary = Array.isArray(failures) && failures.length > 0 && typeof failures[0] === 'object' && ('start' in failures[0]);
+    if (!isArbitrary && failures.length < MIN_SAMPLE_FOR_MLE) return null;
     const dist = distType || 'weibull';
 
     try {
@@ -436,15 +557,28 @@ const Statistics = (() => {
 
       // 분포별 로그우도 함수 선택
       const logLik = (p1, p2) => {
-        if (dist === 'weibull') {
-          if (p1 <= 0 || p2 <= 0) return -Infinity;
-          return Distributions.Weibull.logLikelihood(failures, censored, p1, p2);
-        } else if (dist === 'lognormal') {
-          if (p2 <= 0) return -Infinity;
-          return Distributions.Lognormal.logLikelihood(failures, censored, p1, p2);
-        } else if (dist === 'normal') {
-          if (p2 <= 0) return -Infinity;
-          return Distributions.Normal.logLikelihood(failures, censored, p1, p2);
+        if (isArbitrary) {
+          if (dist === 'weibull') {
+            if (p1 <= 0 || p2 <= 0) return -Infinity;
+            return -Distributions.Weibull.negLogLikelihoodArbitrary(failures)([Math.log(p1), Math.log(p2)]);
+          } else if (dist === 'lognormal') {
+            if (p2 <= 0) return -Infinity;
+            return -Distributions.Lognormal.negLogLikelihoodArbitrary(failures)([p1, Math.log(p2)]);
+          } else if (dist === 'normal') {
+            if (p2 <= 0) return -Infinity;
+            return -Distributions.Normal.negLogLikelihoodArbitrary(failures)([p1, Math.log(p2)]);
+          }
+        } else {
+          if (dist === 'weibull') {
+            if (p1 <= 0 || p2 <= 0) return -Infinity;
+            return Distributions.Weibull.logLikelihood(failures, censored, p1, p2);
+          } else if (dist === 'lognormal') {
+            if (p2 <= 0) return -Infinity;
+            return Distributions.Lognormal.logLikelihood(failures, censored, p1, p2);
+          } else if (dist === 'normal') {
+            if (p2 <= 0) return -Infinity;
+            return Distributions.Normal.logLikelihood(failures, censored, p1, p2);
+          }
         }
         return -Infinity;
       };
@@ -548,6 +682,7 @@ const Statistics = (() => {
     getProbPlotCoords,
     waldLogitCI,
     hazardLogCI,
+    computeHazardCI,
     computeFisherCI,
     computeTrueCDFCI,
     computeBxLifeCI,

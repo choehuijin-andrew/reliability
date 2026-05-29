@@ -848,7 +848,7 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
 /* ═══ Formula Section (KaTeX) ═══ */
 .formula-section {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--card-radius-sm);
   padding: 1.25rem;
@@ -999,3 +999,20 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   }
 }
 
+/* ── Remove number input spinners ── */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* ── Prevent select box text truncation ── */
+select {
+  height: 38px !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  line-height: 1.2 !important;
+}

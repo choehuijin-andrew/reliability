@@ -334,6 +334,189 @@ const WarrantyAnalysis = {
         };
     },
 
+    /**
+     * Monte Carlo 모수 시뮬레이션을 동반한 월별 고장 예측 및 신뢰구간 밴드 산출
+     */
+    forecastWithCI(dist, fitObj, existingProduction, futureProductionMonthly, forecastMonths, unitCost, confidence = 0.90, warrantyMonths = null, averageAge = null, cohortsData = null) {
+        const baseResult = this.forecast(dist, fitObj.params, existingProduction, futureProductionMonthly, forecastMonths, unitCost, warrantyMonths, averageAge, cohortsData);
+        
+        const nSims = 1000;
+        const simData = Array.from({ length: forecastMonths }, () => ({
+            failuresList: [],
+            costList: [],
+            cumFailuresList: [],
+            cumCostList: []
+        }));
+
+        const rawRes = fitObj.analysisResult;
+        let cov = rawRes?.fisherCI?.covMatrix;
+        
+        let hasCov = cov && cov.length === 2 && cov[0].length === 2 && isFinite(cov[0][0]) && isFinite(cov[1][1]);
+        
+        const randNorm = () => {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random(); 
+            while(v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        };
+
+        let L = [[0, 0], [0, 0]];
+        if (hasCov) {
+            try {
+                const v11 = cov[0][0];
+                const v12 = cov[0][1];
+                const v22 = cov[1][1];
+                
+                if (v11 > 0) {
+                    L[0][0] = Math.sqrt(v11);
+                    L[1][0] = v12 / L[0][0];
+                    const v22_adj = v22 - L[1][0] * L[1][0];
+                    L[1][1] = v22_adj > 0 ? Math.sqrt(v22_adj) : 0;
+                } else {
+                    hasCov = false;
+                }
+            } catch (e) {
+                hasCov = false;
+            }
+        }
+        
+        for (let sim = 0; sim < nSims; sim++) {
+            let simParams = {};
+            
+            if (dist === 'weibull' && hasCov) {
+                const lnEta = Math.log(fitObj.params.eta);
+                const lnBeta = Math.log(fitObj.params.beta);
+                
+                const z1 = randNorm();
+                const z2 = randNorm();
+                
+                const simLnEta = lnEta + L[0][0] * z1;
+                const simLnBeta = lnBeta + L[1][0] * z1 + L[1][1] * z2;
+                
+                simParams = {
+                    eta: Math.exp(simLnEta),
+                    beta: Math.max(0.1, Math.exp(simLnBeta))
+                };
+            } else if (dist === 'lognormal' && hasCov) {
+                const mu = fitObj.params.mu;
+                const lnSigma = Math.log(fitObj.params.sigma);
+                
+                const z1 = randNorm();
+                const z2 = randNorm();
+                
+                const simMu = mu + L[0][0] * z1;
+                const simLnSigma = lnSigma + L[1][0] * z1 + L[1][1] * z2;
+                
+                simParams = {
+                    mu: simMu,
+                    sigma: Math.max(0.01, Math.exp(simLnSigma))
+                };
+            } else if (dist === 'normal' && hasCov) {
+                const mean = fitObj.params.mean;
+                const lnStd = Math.log(fitObj.params.std);
+                
+                const z1 = randNorm();
+                const z2 = randNorm();
+                
+                const simMean = mean + L[0][0] * z1;
+                const simLnStd = lnStd + L[1][0] * z1 + L[1][1] * z2;
+                
+                simParams = {
+                    mean: simMean,
+                    std: Math.max(0.01, Math.exp(simLnStd))
+                };
+            } else if (dist === 'exponential') {
+                const lambda = fitObj.params.lambda;
+                const se = rawRes?.fisherCI?.seParams?.[0] || (lambda * 0.05);
+                const z = randNorm();
+                simParams = {
+                    lambda: Math.max(1e-6, lambda + se * z)
+                };
+            } else {
+                if (dist === 'weibull') {
+                    simParams = {
+                        eta: fitObj.params.eta * (1 + randNorm() * 0.05),
+                        beta: Math.max(0.1, fitObj.params.beta * (1 + randNorm() * 0.05))
+                    };
+                } else if (dist === 'lognormal') {
+                    simParams = {
+                        mu: fitObj.params.mu * (1 + randNorm() * 0.05),
+                        sigma: Math.max(0.01, fitObj.params.sigma * (1 + randNorm() * 0.05))
+                    };
+                } else if (dist === 'normal') {
+                    simParams = {
+                        mean: fitObj.params.mean * (1 + randNorm() * 0.05),
+                        std: Math.max(0.01, fitObj.params.std * (1 + randNorm() * 0.05))
+                    };
+                } else {
+                    simParams = Object.assign({}, fitObj.params);
+                }
+            }
+
+            const res = this.forecast(dist, simParams, existingProduction, futureProductionMonthly, forecastMonths, unitCost, warrantyMonths, averageAge, cohortsData);
+            
+            for (let m = 0; m < forecastMonths; m++) {
+                const monthRes = res.monthly[m];
+                if (monthRes) {
+                    simData[m].failuresList.push(monthRes.failures);
+                    simData[m].costList.push(monthRes.cost);
+                    simData[m].cumFailuresList.push(monthRes.cumulativeFailures);
+                    simData[m].cumCostList.push(monthRes.cumulativeCost);
+                }
+            }
+        }
+
+        const getPercentile = (arr, p) => {
+            const sorted = arr.slice().sort((a, b) => a - b);
+            const idx = Math.floor(p * (sorted.length - 1));
+            return sorted[idx];
+        };
+
+        const alpha = (1 - confidence) / 2;
+
+        const enrichedMonthly = baseResult.monthly.map((bm, idx) => {
+            const sd = simData[idx];
+            
+            const failLow = getPercentile(sd.failuresList, alpha);
+            const failHigh = getPercentile(sd.failuresList, 1 - alpha);
+            
+            const costLow = getPercentile(sd.costList, alpha);
+            const costHigh = getPercentile(sd.costList, 1 - alpha);
+            
+            const cumFailLow = getPercentile(sd.cumFailuresList, alpha);
+            const cumFailHigh = getPercentile(sd.cumFailuresList, 1 - alpha);
+            
+            const cumCostLow = getPercentile(sd.cumCostList, alpha);
+            const cumCostHigh = getPercentile(sd.cumCostList, 1 - alpha);
+
+            return Object.assign({}, bm, {
+                failures_CI: [parseFloat(failLow.toFixed(2)), parseFloat(failHigh.toFixed(2))],
+                cost_CI: [parseFloat(costLow.toFixed(0)), parseFloat(costHigh.toFixed(0))],
+                cumulativeFailures_CI: [parseFloat(cumFailLow.toFixed(2)), parseFloat(cumFailHigh.toFixed(2))],
+                cumulativeCost_CI: [parseFloat(cumCostLow.toFixed(0)), parseFloat(cumCostHigh.toFixed(0))]
+            });
+        });
+
+        const totalFailuresSim = simData[forecastMonths - 1].cumFailuresList;
+        const totalCostSim = simData[forecastMonths - 1].cumCostList;
+
+        return {
+            monthly: enrichedMonthly,
+            totalFailures: baseResult.totalFailures,
+            totalFailures_CI: [
+                parseFloat(getPercentile(totalFailuresSim, alpha).toFixed(1)),
+                parseFloat(getPercentile(totalFailuresSim, 1 - alpha).toFixed(1))
+            ],
+            totalCost: baseResult.totalCost,
+            totalCost_CI: [
+                parseFloat(getPercentile(totalCostSim, alpha).toFixed(0)),
+                parseFloat(getPercentile(totalCostSim, 1 - alpha).toFixed(0))
+            ],
+            peakMonth: baseResult.peakMonth,
+            avgFailures: baseResult.avgFailures
+        };
+    },
+
     // ═══════════════════════════════════════
     // 5. 텍스트 파싱 헬퍼
     // ═══════════════════════════════════════

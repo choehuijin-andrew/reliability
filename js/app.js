@@ -30,6 +30,14 @@ let accelerationState = {
     eyringSStress: 5,
     fUse: 1,
     fStress: 3,
+    nlRampUpUse: 360,
+    nlDwellHighUse: 360,
+    nlRampDownUse: 360,
+    nlDwellLowUse: 360,
+    nlRampUpStress: 30,
+    nlDwellHighStress: 30,
+    nlRampDownStress: 30,
+    nlDwellLowStress: 30,
     nlTmaxUse: 50,
     nlTmaxStress: 125,
     nlEa: 0.123
@@ -161,6 +169,10 @@ function renderAnalysisInputTab() {
                             <div style="font-size:0.82rem;color:var(--text-primary)">Lognormal 절연체 데이터</div>
                             <div style="font-size:0.7rem;color:var(--text-muted)">Meeker & Escobar — 절연 파괴 시험</div>
                         </div>
+                        <div class="sample-item" onclick="loadSampleData('weibull_mixture');closeSampleDropdown()">
+                            <div style="font-size:0.82rem;color:var(--text-primary)">Weibull Mixture (경쟁고장) 데이터</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">초기 고장과 마모 고장이 복합적으로 혼재된 제품 수명 데이터</div>
+                        </div>
 
                         <div style="padding:0.5rem 0.75rem;font-size:0.72rem;color:var(--text-muted);border-bottom:1px solid var(--border-color);border-top:1px solid var(--border-color);background:var(--bg-tertiary)">📌 구간관측중단 (Interval Censored)</div>
                         <div class="sample-item" onclick="loadSampleData('interval_censored');closeSampleDropdown()" id="sample-interval-btn">
@@ -209,6 +221,7 @@ function renderAnalysisInputTab() {
             <select id="analysis-dist">
                 <option value="auto" selected>자동 선택 (AICc 기준)</option>
                 <option value="weibull">Weibull 2P</option>
+                <option value="weibull_mixture">Weibull Mixture (이중/경쟁고장)</option>
                 <option value="lognormal">Lognormal 2P</option>
                 <option value="normal">Normal 2P</option>
                 <option value="exponential">Exponential 1P</option>
@@ -305,6 +318,13 @@ const SAMPLE_DATA = {
         [180,'F',1,'A'],[220,'F',1,'A'],[280,'C',1,'A'],[350,'F',1,'A'],[400,'C',1,'A'],
         [80,'F',1,'B'],[110,'F',1,'B'],[130,'F',1,'B'],[160,'F',1,'B'],[200,'F',1,'B'],
         [240,'F',1,'B'],[300,'C',1,'B'],[380,'F',1,'B'],[450,'C',1,'B'],[500,'F',1,'B']
+    ],
+    // 이중/경쟁 고장 샘플
+    weibull_mixture: [
+        [10,'F',1,''],[20,'F',1,''],[35,'F',1,''],[50,'F',1,''],[80,'F',1,''],
+        [100,'F',1,''],[120,'C',1,''],[150,'C',1,''],[320,'F',1,''],[350,'F',1,''],
+        [380,'F',1,''],[400,'F',1,''],[420,'F',1,''],[450,'F',1,''],[480,'F',1,''],
+        [500,'F',1,''],[520,'F',1,''],[550,'F',1,''],[600,'C',1,''],[650,'C',1,'']
     ]
 };
 
@@ -482,12 +502,11 @@ function runAnalysis() {
 
             const allResults = {};
             groupIds.forEach(gid => {
-                const expanded = expandIntervalRows(grouped[gid]);
-                if (expanded.failures.length < 2) return;
+                const dataRows = grouped[gid];
+                const expanded = expandIntervalRows(dataRows);
+                if (expanded.failures.length < 1) return; // 고장이 최소 1개 이상 필요
                 try {
-                    const rs = expanded.failures.map(t => ({time:t,event:'F'}))
-                        .concat(expanded.censored.map(t => ({time:t,event:'C'})));
-                    allResults[gid] = ReliabilityAnalysis.analyze(rs, { distribution: dist, confidence: conf });
+                    allResults[gid] = ReliabilityAnalysis.analyze(dataRows, { distribution: dist, confidence: conf });
                     allResults[gid]._groupId = gid;
                 } catch(e) { console.warn(`그룹 ${gid} 분석 실패:`, e); }
             });
@@ -557,10 +576,18 @@ function switchAnalysisGroup(gid) {
 }
 
 function renderAnalysisSummary(r, extraHeaderHtml = '') {
-    const distLabel = { weibull:'Weibull 2P', lognormal:'Lognormal 2P', normal:'Normal 2P', exponential:'Exponential 1P' };
+    const distLabel = { 
+        weibull: 'Weibull 2P', 
+        lognormal: 'Lognormal 2P', 
+        normal: 'Normal 2P', 
+        exponential: 'Exponential 1P',
+        weibull_mixture: 'Weibull Mixture (이중/경쟁고장)'
+    };
     const p = r.params;
     const paramStr = r.distribution === 'weibull'
         ? `η = ${p.alpha.toFixed(3)}, β = ${p.beta.toFixed(4)}`
+        : r.distribution === 'weibull_mixture'
+        ? `p = ${p.p.toFixed(3)}, η₁ = ${p.alpha1.toFixed(1)}, β₁ = ${p.beta1.toFixed(2)}, η₂ = ${p.alpha2.toFixed(1)}, β₂ = ${p.beta2.toFixed(2)}`
         : r.distribution === 'lognormal'
         ? `μ = ${p.mu.toFixed(4)}, σ = ${p.sigma.toFixed(4)}`
         : r.distribution === 'normal'
@@ -720,8 +747,14 @@ function renderAnalysisChartsTab() {
 
     const conf = (_analysisResult.confidence * 100).toFixed(0);
     const allDists = (_analysisResult.comparison || []).map(c => c.dist);
-    const distLabel = { weibull:'Weibull 2P', lognormal:'Lognormal 2P', normal:'Normal 2P', exponential:'Exponential 1P' };
-    const distColors = { weibull:'#38bdf8', lognormal:'#f59e0b', normal:'#a78bfa', exponential:'#22c55e' };
+    const distLabel = { 
+        weibull: 'Weibull 2P', 
+        lognormal: 'Lognormal 2P', 
+        normal: 'Normal 2P', 
+        exponential: 'Exponential 1P',
+        weibull_mixture: 'Weibull Mixture (이중/경쟁고장)'
+    };
+    const distColors = { weibull:'#38bdf8', lognormal:'#f59e0b', normal:'#a78bfa', exponential:'#22c55e', weibull_mixture: '#f43f5e' };
 
     return `
     <div class="glass-card" style="margin-bottom:1rem">
@@ -733,10 +766,9 @@ function renderAnalysisChartsTab() {
                     신뢰구간
                 </label>
                 <input type="number" id="ci-level" value="${conf}" min="50" max="99" step="1"
-                    style="width:60px;padding:3px 6px;font-size:0.8rem;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary)"
-                    onchange="updateCILevel(this.value)">
+                     style="width:60px;padding:3px 6px;font-size:0.8rem;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary)"
+                     onchange="updateCILevel(this.value)">
                 <span style="font-size:0.8rem;color:var(--text-muted)">%</span>
-                <!-- 기존 "분포 비교 추가" 패널 제거: 그룹별 인라인 드롭다운으로 대체됨 -->
             </div>
         </div>
     </div>
@@ -759,6 +791,7 @@ function renderAnalysisChartsTab() {
                  + '</label>'
                  + '<select id="grp-dist-' + g + '" style="font-size:0.75rem;padding:2px 4px;background:var(--bg-primary);border:1px solid var(--border-color);color:var(--text-muted);border-radius:4px" onchange="changeGroupDist(\'' + g + '\', this.value)">'
                  + '<option value="weibull"' + (dist==='weibull'?' selected':'') + '>Weibull</option>'
+                 + '<option value="weibull_mixture"' + (dist==='weibull_mixture'?' selected':'') + '>Weibull Mixture</option>'
                  + '<option value="lognormal"' + (dist==='lognormal'?' selected':'') + '>Lognormal</option>'
                  + '<option value="normal"' + (dist==='normal'?' selected':'') + '>Normal</option>'
                  + '<option value="exponential"' + (dist==='exponential'?' selected':'') + '>Exponential</option>'
@@ -830,18 +863,43 @@ function updateCILevel(val) {
     if (!_analysisResult || !isFinite(n) || n < 50 || n > 99) return;
     // 신뢰구간 재계산
     const r = _analysisResult;
-    const zScore = Distributions.normalPPF((1 + n/100) / 2);
+    const confidence = n / 100;
+    const zScore = Distributions.normalPPF((1 + confidence) / 2);
+    
+    // fisherCI 재계산
+    if (r.dataSummary.failures && r.dataSummary.failures.length >= 3) {
+        r.fisherCI = Statistics.computeFisherCI(
+            r.dataSummary.arbitraryData || r.dataSummary.failures,
+            r.dataSummary.arbitraryData ? null : r.dataSummary.censored,
+            r.dist || r.distribution, r.params, confidence
+        );
+    }
+    
     const cdfVals = r.plotData.cdf;
     const hfVals  = r.plotData.hf;
     const nTotal  = r.dataSummary.nTotal;
-    const cdfCI = Statistics.waldLogitCI(cdfVals, nTotal, zScore);
-    const hfCI  = Statistics.hazardLogCI(hfVals, r.dataSummary.nFailures, zScore);
+    
+    let cdfCI, hfCI;
+    if (r.fisherCI && r.fisherCI.covMatrix) {
+        cdfCI = Statistics.computeTrueCDFCI(r.dist || r.distribution, r.params, r.fisherCI.covMatrix, r.plotData.x, zScore);
+        hfCI  = Statistics.computeHazardCI(r.dist || r.distribution, r.params, r.fisherCI.covMatrix, r.plotData.x, zScore);
+    } else {
+        cdfCI = Statistics.waldLogitCI(cdfVals, nTotal, zScore);
+        hfCI  = Statistics.hazardLogCI(hfVals, r.dataSummary.nFailures, zScore);
+    }
+    
+    r.confidence = confidence;
     r.plotData.cdfLower = cdfCI.lower;
     r.plotData.cdfUpper = cdfCI.upper;
     r.plotData.relLower = cdfCI.upper.map(v => 1 - v);
     r.plotData.relUpper = cdfCI.lower.map(v => 1 - v);
     r.plotData.hfLower  = hfCI.lower;
     r.plotData.hfUpper  = hfCI.upper;
+    
+    // UI의 모수 텍스트 영역 갱신
+    if (typeof updateParameterDisplay === 'function') {
+        updateParameterDisplay(r);
+    }
     drawAllAnalysisCharts();
 }
 
@@ -852,13 +910,10 @@ function changeGroupDist(groupId, newDist) {
         const rawRows = getAnalysisData();
         const grouped = groupAnalysisData(rawRows);
         const dataRows = grouped[groupId === '기본 그룹' ? '__all__' : groupId] || grouped[groupId] || [];
-        const expanded = expandIntervalRows(dataRows);
-        const rs = expanded.failures.map(t => ({time:t,event:'F'}))
-            .concat(expanded.censored.map(t => ({time:t,event:'C'})));
         
         const confText = document.getElementById('ci-level')?.value;
         const conf = confText ? parseInt(confText)/100 : 0.90;
-        const newResult = ReliabilityAnalysis.analyze(rs, { distribution: newDist, confidence: conf });
+        const newResult = ReliabilityAnalysis.analyze(dataRows, { distribution: newDist, confidence: conf });
         newResult._groupId = groupId;
         allRes[groupId] = newResult;
 
@@ -1853,12 +1908,20 @@ function runReliabilityPlan() {
                 <span class="accordion-arrow">▼</span>
             </div>
             <div class="accordion-body">
-                <div class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-bottom:0.5rem">
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaText('#rel-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-file-alt" style="margin-right:0.25rem"></i> 텍스트 복사
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaImage('#rel-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-image" style="margin-right:0.25rem"></i> 이미지 복사 (보고서용)
+                    </button>
+                </div>
+                <div id="rel-formula-section" class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
             </div>
         </div>
 
         <div class="accordion" style="margin-top:0.75rem">
-            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open');setTimeout(()=>drawOCChart(${n},${c}),100)">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open');setTimeout(()=>drawOCChart(${n},${c},${100 - R},${1 - C/100}),100)">
                 OC Curve (부하 특성 곡선)
                 <span class="accordion-arrow">▼</span>
             </div>
@@ -1889,9 +1952,9 @@ function runReliabilityPlan() {
     `;
 }
 
-function drawOCChart(n, c) {
+function drawOCChart(n, c, targetP, targetBeta) {
     const data = SamplePlanning.generateOCCurve(n, c);
-    ChartManager.drawOCCurve('oc-chart', data, n, c);
+    ChartManager.drawOCCurve('oc-chart', data, n, c, targetP, targetBeta);
 }
 
 // ── LTPD ──
@@ -1956,10 +2019,33 @@ function runLTPD() {
                 계산 공식 및 과정 <span class="accordion-arrow">▼</span>
             </div>
             <div class="accordion-body">
-                <div class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-bottom:0.5rem">
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaText('#ltpd-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-file-alt" style="margin-right:0.25rem"></i> 텍스트 복사
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaImage('#ltpd-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-image" style="margin-right:0.25rem"></i> 이미지 복사 (보고서용)
+                    </button>
+                </div>
+                <div id="ltpd-formula-section" class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+            </div>
+        </div>
+
+        <div class="accordion" style="margin-top:0.75rem">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open');setTimeout(()=>drawOCChartLTPD(${n},${c},${p},${beta}),100)">
+                OC Curve (부하 특성 곡선)
+                <span class="accordion-arrow">▼</span>
+            </div>
+            <div class="accordion-body">
+                <div class="chart-container" style="height:300px"><canvas id="oc-chart-ltpd"></canvas></div>
             </div>
         </div>
     `;
+}
+
+function drawOCChartLTPD(n, c, targetP, targetBeta) {
+    const data = SamplePlanning.generateOCCurve(n, c);
+    ChartManager.drawOCCurve('oc-chart-ltpd', data, n, c, targetP, targetBeta);
 }
 
 // ── Weibull Bx 수명 기반 시료수 ──
@@ -2064,7 +2150,15 @@ function runWeibullBx() {
                 계산 공식 및 과정 <span class="accordion-arrow">▼</span>
             </div>
             <div class="accordion-body">
-                <div class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-bottom:0.5rem">
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaText('#wbx-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-file-alt" style="margin-right:0.25rem"></i> 텍스트 복사
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaImage('#wbx-formula-section'); event.stopPropagation();">
+                        <i class="fas fa-image" style="margin-right:0.25rem"></i> 이미지 복사 (보고서용)
+                    </button>
+                </div>
+                <div id="wbx-formula-section" class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
             </div>
         </div>
 
@@ -2081,29 +2175,67 @@ function runWeibullBx() {
 
     // 트레이드오프 차트 데이터를 전역에 저장
     window._wbxTradeoff = tradeoff;
+    window._wbxUserTestTime = tTest;
+    window._wbxUserN = result.n;
 }
 
 function drawBxTradeoff() {
     const data = window._wbxTradeoff;
     if (!data || !document.getElementById('wbx-tradeoff-chart')) return;
+
+    const datasets = [{
+        label: '필요 시료수 (n)',
+        data: data.map(d => ({ x: d.t, y: d.n })),
+        borderColor: '#38bdf8',
+        backgroundColor: '#38bdf818',
+        fill: false,
+        pointRadius: 0,
+        borderWidth: 2.5,
+        tension: 0.3
+    }];
+
+    // 현재 설정 조건 포인트 강조 레이어 추가
+    if (window._wbxUserTestTime !== undefined && window._wbxUserN !== undefined) {
+        datasets.push({
+            label: '현재 설정 조건',
+            data: [{ x: window._wbxUserTestTime, y: window._wbxUserN }],
+            borderColor: '#ef4444',
+            backgroundColor: '#ef4444',
+            pointRadius: 7,
+            pointHoverRadius: 9,
+            showLine: false
+        });
+    }
+
     ChartManager.createOrUpdate('wbx-tradeoff-chart', {
         type: 'line',
-        data: {
-            datasets: [{
-                label: '시료수 (n)',
-                data: data.map(d => ({ x: d.t, y: d.n })),
-                borderColor: '#38bdf8',
-                backgroundColor: '#38bdf818',
-                fill: false,
-                pointRadius: 0,
-                borderWidth: 2.5,
-                tension: 0.3
-            }]
-        },
+        data: { datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
             parsing: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            plugins: { 
+                legend: { display: true, labels: { color: '#94a3b8' } },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const t = ctx.parsed.x;
+                            const n = ctx.parsed.y;
+                            if (ctx.datasetIndex === 1) {
+                                return `현재 조건: 시험시간 ${t.toLocaleString()}h, 시료수 ${n}개`;
+                            }
+                            let diffStr = '';
+                            if (window._wbxUserTestTime !== undefined && window._wbxUserN !== undefined) {
+                                const dt = t - window._wbxUserTestTime;
+                                const dn = n - window._wbxUserN;
+                                const dtSign = dt >= 0 ? '+' : '';
+                                const dnSign = dn >= 0 ? '+' : '';
+                                diffStr = ` (기준 대비 시험시간: ${dtSign}${dt.toLocaleString()}h, 시료수: ${dnSign}${dn.toLocaleString()}개)`;
+                            }
+                            return `시험시간: ${t.toLocaleString()}h, 시료수: ${n}개${diffStr}`;
+                        }
+                    }
+                }
+            },
             scales: {
                 x: { type: 'linear', title: { display: true, text: '시험 시간 (h)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } },
                 y: { title: { display: true, text: '필요 시료수 (n)', color: '#64748b' }, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } }
@@ -2495,13 +2627,13 @@ function renderAccDesignContent() {
         <div class="glass-card">
             <h3 class="section-title">가속 수명 시험 설계</h3>
 
-            \${HelpTooltip.labelWithHelp('가속 모델', '스트레스 유형에 따른 가속 모델 선택')}
+            ${HelpTooltip.labelWithHelp('가속 모델', '스트레스 유형에 따른 가속 모델 선택')}
             <select id="acc-model" onchange="updateAccModelInputs()">
                 <option value="arrhenius" selected>Arrhenius (온도)</option>
-                <option value="eyring" style="display:none">Eyring (온도 + 비열 스트레스)</option>
+                <option value="eyring">Eyring (온도 + 비열 스트레스)</option>
                 <option value="peck">Peck (온도 + 습도)</option>
                 <option value="coffin_manson">Coffin-Manson (열 사이클)</option>
-                <option value="norris_landzberg" style="display:none">Norris-Landzberg (열 사이클 확장)</option>
+                <option value="norris_landzberg">Norris-Landzberg (열 사이클 확장)</option>
                 <option value="inverse_power">Inverse Power Law (전압/전류)</option>
                 <option value="arrhenius_power">복합: Arrhenius × Inverse Power</option>
             </select>
@@ -2525,18 +2657,82 @@ function renderAccDesignContent() {
             </div>
 
             <div id="acc-model-inputs">
-                \${renderArrheniusInputs()}
+                ${renderArrheniusInputs()}
             </div>
 
             <div class="divider">시험 조건</div>
             <div id="acc-test-inputs">
-                \${renderAccTestInputs()}
+                ${renderAccTestInputs()}
             </div>
 
             <button class="btn btn-primary" style="width:100%;margin-top:1.25rem;font-size:1rem"
                     onclick="runAcceleration()">
                 계산 실행
             </button>
+
+            <!-- Ea / n 가속 상수 역산기 -->
+            <div class="glass-card" style="margin-top: 1.5rem; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px;">
+                <h4 style="font-size: 0.95rem; margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.35rem; color: var(--text-primary);">
+                    <i class="fas fa-calculator" style="color: var(--accent-color);"></i> Ea / n 가속 상수 역산기
+                </h4>
+                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; line-height: 1.4;">
+                    두 조건의 스트레스와 수명 대푯값(MTTF/B10 등)을 입력하여 가속 상수(Ea 또는 n)를 역산해 냅니다.
+                </div>
+                
+                <div class="grid-2">
+                    <div>
+                        <label style="font-size:0.7rem; color: var(--text-secondary);">상수 유형</label>
+                        <select id="rev-type" onchange="toggleRevFields()" style="width:100%; height:36px; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+                            <option value="ea">Ea 역산 (Arrhenius)</option>
+                            <option value="n">n 지수 역산 (IPL)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.7rem; display:block; height:15px;"></label>
+                        <button class="btn btn-sm btn-secondary" onclick="calculateReverseParam()" style="width:100%; height:36px; font-size:0.75rem;">
+                            <i class="fas fa-magic" style="margin-right:0.25rem"></i> 상수 계산
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="grid-2" style="margin-top:0.75rem">
+                    <div style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 6px;">
+                        <div style="font-size:0.7rem; font-weight:bold; color:var(--accent-color); margin-bottom:0.25rem;">조건 1 (낮은 스트레스)</div>
+                        <div style="display:flex; flex-direction:column; gap:0.4rem; margin-top:0.35rem">
+                            <div>
+                                <span id="rev-s1-label" style="font-size:0.65rem; color: var(--text-secondary); display:block; margin-bottom:2px;">온도 1 (°C)</span>
+                                <input type="number" id="rev-s1" value="55" style="height:28px; font-size:0.8rem; width: 100%; padding:2px 6px;">
+                            </div>
+                            <div>
+                                <span style="font-size:0.65rem; color: var(--text-secondary); display:block; margin-bottom:2px;">수명 1 (시간)</span>
+                                <input type="number" id="rev-l1" value="10000" style="height:28px; font-size:0.8rem; width: 100%; padding:2px 6px;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 6px;">
+                        <div style="font-size:0.7rem; font-weight:bold; color:var(--danger); margin-bottom:0.25rem;">조건 2 (높은 스트레스)</div>
+                        <div style="display:flex; flex-direction:column; gap:0.4rem; margin-top:0.35rem">
+                            <div>
+                                <span id="rev-s2-label" style="font-size:0.65rem; color: var(--text-secondary); display:block; margin-bottom:2px;">온도 2 (°C)</span>
+                                <input type="number" id="rev-s2" value="125" style="height:28px; font-size:0.8rem; width: 100%; padding:2px 6px;">
+                            </div>
+                            <div>
+                                <span style="font-size:0.65rem; color: var(--text-secondary); display:block; margin-bottom:2px;">수명 2 (시간)</span>
+                                <input type="number" id="rev-l2" value="250" style="height:28px; font-size:0.8rem; width: 100%; padding:2px 6px;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="rev-result-panel" style="margin-top:0.75rem; display:none; padding:0.5rem; text-align:center; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent-color); border-radius: 6px;">
+                    <div style="font-size:0.7rem; color:var(--text-secondary)">역산 결과</div>
+                    <div id="rev-result-val" style="font-size:1.05rem; font-weight:bold; color:var(--accent-color); margin: 0.15rem 0;">-</div>
+                    <button id="rev-apply-btn" class="btn btn-sm btn-primary" style="margin-top:0.25rem; font-size:0.7rem; padding:0.2rem 0.5rem; height: auto;">
+                         가속 설계에 반영하기
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div id="acc-result" class="glass-card">
@@ -2566,13 +2762,25 @@ function renderArrheniusInputs() {
         </div>
         <div style="margin-top:0.75rem">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea)', '고장 메커니즘의 활성화 에너지.<br>반도체: 0.5~1.0 eV<br>솔더 접합: 0.4~0.7 eV<br>부식/금속이동: 0.9~1.0 eV')}
+            ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea) 프리셋', '주요 부품 및 고장 메커니즘의 Ea 표준 레퍼런스 값')}
+        </div>
+        <select id="acc-ea-preset" onchange="applyAccPreset('arrhenius', this.value)" style="margin-bottom:0.5rem; width:100%; height:32px; padding:0 0.5rem; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+            <option value="">-- Ea 프리셋 선택 --</option>
+            <option value="0.7">반도체 소자 마모 (0.7 eV)</option>
+            <option value="0.9">패키지 부식/금속 이염 (0.9 eV)</option>
+            <option value="0.5">솔더 조인트 피로/크리프 (0.5 eV)</option>
+            <option value="1.0">게이트 산화막 파괴 (1.0 eV)</option>
+            <option value="0.98">전해콘덴서 수명 열화 (0.98 eV)</option>
+            <option value="0.3">우발 고장 메커니즘 (0.3 eV)</option>
+        </select>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea) 직접 입력', '고장 메커니즘의 활성화 에너지')}
             <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('arrhenius')">
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
         <div class="input-with-unit">
-            <input type="number" id="acc-ea" value="${ea}" min="0.01" max="3" step="0.01">
+            <input type="number" id="acc-ea" value="${ea}" min="0.01" max="3" step="0.01" oninput="accelerationState.ea = parseFloat(this.value)">
             <span class="input-unit">eV</span>
         </div>
         </div>`;
@@ -2669,12 +2877,21 @@ function renderPeckInputs() {
         </div>
         <div style="margin-top:0.75rem">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            ${HelpTooltip.labelWithHelp('습도 지수 (n)', 'JEDEC 권장: 3.0')}
+            ${HelpTooltip.labelWithHelp('Peck 모델 습도 지수 (n) 프리셋', '온도+습도 가속 파라미터 조합 프리셋')}
+        </div>
+        <select id="acc-peck-preset" onchange="applyAccPreset('peck', this.value)" style="margin-bottom:0.5rem; width:100%; height:32px; padding:0 0.5rem; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+            <option value="">-- 습도 가속 프리셋 선택 --</option>
+            <option value="0.9|3.0">JEDEC 표준 패키지 부식 (Ea=0.9 eV, n=3.0)</option>
+            <option value="0.86|2.7">전력 반도체 수분 열화 (Ea=0.86 eV, n=2.7)</option>
+            <option value="0.75|2.5">에폭시 몰딩 계면 박리 (Ea=0.75 eV, n=2.5)</option>
+        </select>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('습도 지수 (n) 직접 입력', 'JEDEC 권장: 3.0')}
             <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('peck')">
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-n-peck" value="${nPeck}" min="0.1" step="0.1">
+        <input type="number" id="acc-n-peck" value="${nPeck}" min="0.1" step="0.1" oninput="accelerationState.nPeck = parseFloat(this.value)">
         </div>`;
 }
 
@@ -2697,12 +2914,23 @@ function renderCMInputs() {
         </div>
         <div style="margin-top:0.75rem">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            ${HelpTooltip.labelWithHelp('코핀-맨슨 지수 (m)', 'PCB 솔더: m ≈ 1.9~2.0')}
+            ${HelpTooltip.labelWithHelp('코핀-맨슨 피로 지수 (m) 프리셋', '재료 및 접합부 종류에 따른 피로 지수')}
+        </div>
+        <select id="acc-m-preset" onchange="applyAccPreset('coffin_manson', this.value)" style="margin-bottom:0.5rem; width:100%; height:32px; padding:0 0.5rem; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+            <option value="">-- m 지수 프리셋 선택 --</option>
+            <option value="1.9">Lead-free 무연 솔더 접합 (m = 1.9)</option>
+            <option value="1.2">SnPb 공정 유연 솔더 (m = 1.2)</option>
+            <option value="2.5">세라믹 칩 커패시터 열피로 (m = 2.5)</option>
+            <option value="4.0">플라스틱 패키지 봉지재 크랙 (m = 4.0)</option>
+            <option value="5.0">반도체 알루미늄 본딩 와이어 (m = 5.0)</option>
+        </select>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('코핀-맨슨 지수 (m) 직접 입력', 'PCB 솔더: m ≈ 1.9~2.0')}
             <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('coffin_manson')">
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-m" value="${m}" min="0.1" step="0.1">
+        <input type="number" id="acc-m" value="${m}" min="0.1" step="0.1" oninput="accelerationState.m = parseFloat(this.value)">
         </div>`;
 }
 
@@ -2719,12 +2947,22 @@ function renderIPInputs() {
         </div>
         <div style="margin-top:0.75rem">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            ${HelpTooltip.labelWithHelp('역거듭제곱 지수 (n)', '재료/메커니즘에 따라 다름')}
+            ${HelpTooltip.labelWithHelp('역거듭제곱 스트레스 지수 (n) 프리셋', '스트레스 유형별 n 지수 프리셋')}
+        </div>
+        <select id="acc-n-power-preset" onchange="applyAccPreset('inverse_power', this.value)" style="margin-bottom:0.5rem; width:100%; height:32px; padding:0 0.5rem; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+            <option value="">-- n 지수 프리셋 선택 --</option>
+            <option value="3.0">세라믹 커패시터 전압 열화 (n = 3.0)</option>
+            <option value="5.0">박막 필름 커패시터 전압 열화 (n = 5.0)</option>
+            <option value="7.0">전력 케이블 절연막 파괴 (n = 7.0)</option>
+            <option value="10.0">게이트 옥사이드 TDDB 마모 (n = 10.0)</option>
+        </select>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('역거듭제곱 지수 (n) 직접 입력', '재료/메커니즘에 따라 다름')}
             <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('inverse_power')">
                 <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
             </span>
         </div>
-        <input type="number" id="acc-n-power" value="${nPower}" min="0.1" step="0.1">
+        <input type="number" id="acc-n-power" value="${nPower}" min="0.1" step="0.1" oninput="accelerationState.nPower = parseFloat(this.value)">
         </div>`;
 }
 
@@ -2734,38 +2972,136 @@ function renderEyringInputs() {
     const eyringSStress = accelerationState.eyringSStress;
     return renderArrheniusInputs() + `
         <div style="margin-top:0.75rem">
-        ${HelpTooltip.labelWithHelp('비열 스트레스 계수 (B)', 'Eyring 모델의 2차 스트레스 파라미터.<br>0이면 순수 Arrhenius와 동일')}
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('비열 스트레스 계수 (B) 프리셋', '주요 고장 메커니즘의 비열 스트레스 가속상수 레퍼런스')}
+        </div>
+        <select id="acc-eyring-preset" onchange="applyAccPreset('eyring', this.value)" style="margin-bottom:0.5rem; width:100%; height:32px; padding:0 0.5rem; font-size:0.8rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary)">
+            <option value="">-- 비열 계수 (B) 프리셋 선택 --</option>
+            <option value="0.7|1.2">전압 TDDB 고장 가속 (Ea=0.7 eV, B=1.2)</option>
+            <option value="0.8|0.044">수분 절연 열화 가속 (Ea=0.8 eV, B=0.044)</option>
+            <option value="1.0|1.5">게이트 산화막 파괴 가속 (Ea=1.0 eV, B=1.5)</option>
+        </select>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            ${HelpTooltip.labelWithHelp('비열 스트레스 계수 (B) 직접 입력', 'Eyring 모델의 2차 스트레스 영향 지수')}
+            <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('eyring')">
+                <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
+            </span>
+        </div>
         <input type="number" id="acc-eyring-b" value="${eyringB}" step="0.01">
         </div>
-        <div class="grid-2" style="margin-top:0.75rem">
-            <div>
-                ${HelpTooltip.labelWithHelp('사용 스트레스 (S_use)', '비열 스트레스 사용 수준')}
-                <input type="number" id="acc-eyring-s-use" value="${eyringSUse}" min="0" step="0.1">
-            </div>
-            <div>
-                ${HelpTooltip.labelWithHelp('가속 스트레스 (S_stress)', '비열 스트레스 가속 수준')}
-                <input type="number" id="acc-eyring-s-stress" value="${eyringSStress}" min="0" step="0.1">
-            </div>
+        <div style="margin-top:0.75rem">
+        ${HelpTooltip.labelWithHelp('사용 스트레스 (S_use)', '실제 사용 조건에서의 비열 스트레스 수치 (예: 전압, 전류 등)')}
+        <input type="number" id="acc-eyring-s-use" value="${eyringSUse}" min="0" step="0.1">
+        </div>
+        <div style="margin-top:0.75rem">
+        ${HelpTooltip.labelWithHelp('가속 스트레스 (S_stress)', '가속 시험 조건에서의 비열 스트레스 수치 (예: 전압, 전류 등)')}
+        <input type="number" id="acc-eyring-s-stress" value="${eyringSStress}" min="0" step="0.1">
         </div>`;
 }
 
 function renderNLInputs() {
-    const fUse = accelerationState.fUse;
-    const fStress = accelerationState.fStress;
-    const nlTmaxUse = accelerationState.nlTmaxUse;
-    const nlTmaxStress = accelerationState.nlTmaxStress;
-    const nlEa = accelerationState.nlEa;
+    const dtUse = accelerationState.dtUse;
+    const dtStress = accelerationState.dtStress;
+    const m = accelerationState.m;
+
+    const nlRampUpUse = accelerationState.nlRampUpUse || 360;
+    const nlDwellHighUse = accelerationState.nlDwellHighUse || 360;
+    const nlRampDownUse = accelerationState.nlRampDownUse || 360;
+    const nlDwellLowUse = accelerationState.nlDwellLowUse || 360;
+
+    const nlRampUpStress = accelerationState.nlRampUpStress || 30;
+    const nlDwellHighStress = accelerationState.nlDwellHighStress || 30;
+    const nlRampDownStress = accelerationState.nlRampDownStress || 30;
+    const nlDwellLowStress = accelerationState.nlDwellLowStress || 30;
+
+    const nlTmaxUse = accelerationState.nlTmaxUse || 50;
+    const nlTmaxStress = accelerationState.nlTmaxStress || 125;
+    const nlEa = accelerationState.nlEa || 0.123;
+
+    // 초기 주파수 계산
+    const totalUseMin = nlRampUpUse + nlDwellHighUse + nlRampDownUse + nlDwellLowUse;
+    const totalStressMin = nlRampUpStress + nlDwellHighStress + nlRampDownStress + nlDwellLowStress;
+    const fUseCalc = (1440 / totalUseMin).toFixed(4);
+    const fStressCalc = (1440 / totalStressMin).toFixed(4);
+
     return renderCMInputs() + `
-        <div class="grid-2" style="margin-top:0.75rem">
+        <div class="divider" style="margin-top:1rem; margin-bottom: 0.5rem;">사용 환경 사이클 프로파일 (주파수 환산용)</div>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">각 구간의 시간을 입력하면 1일당 사이클 주파수(cycles/day)가 자동 계산됩니다.</div>
+        <div class="grid-2">
             <div>
-                ${HelpTooltip.labelWithHelp('사용 주파수 (f_use)', '사용 환경에서의 사이클 주파수 (cycles/day)')}
-                <input type="number" id="acc-f-use" value="${fUse}" min="0.01" step="0.1">
+                ${HelpTooltip.labelWithHelp('상승(Ramp Up) 시간', '고온으로 온도가 상승하는 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-rampup-use" value="${nlRampUpUse}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
             </div>
             <div>
-                ${HelpTooltip.labelWithHelp('가속 주파수 (f_stress)', '가속 시험 사이클 주파수')}
-                <input type="number" id="acc-f-stress" value="${fStress}" min="0.01" step="0.1">
+                ${HelpTooltip.labelWithHelp('고온 유지(Dwell High)', '최고 온도 유지 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-dwellhigh-use" value="${nlDwellHighUse}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
             </div>
         </div>
+        <div class="grid-2" style="margin-top:0.5rem">
+            <div>
+                ${HelpTooltip.labelWithHelp('하강(Ramp Down)', '저온으로 온도가 하강하는 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-rampdown-use" value="${nlRampDownUse}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+            <div>
+                ${HelpTooltip.labelWithHelp('저온 유지(Dwell Low)', '최저 온도 유지 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-dwelllow-use" value="${nlDwellLowUse}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:0.4rem; font-size:0.75rem; color:var(--accent-color); font-weight:bold; display:flex; justify-content:space-between;">
+            <span>1사이클 시간: <span id="nl-cycle-time-use">${totalUseMin}</span>분</span>
+            <span>환산 사용 주파수: <span id="nl-freq-use-val">${fUseCalc}</span> cycles/day</span>
+        </div>
+
+        <div class="divider" style="margin-top:1rem; margin-bottom: 0.5rem;">가속 시험 사이클 프로파일 (주파수 환산용)</div>
+        <div class="grid-2">
+            <div>
+                ${HelpTooltip.labelWithHelp('상승(Ramp Up) 시간', '고온으로 온도가 상승하는 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-rampup-stress" value="${nlRampUpStress}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+            <div>
+                ${HelpTooltip.labelWithHelp('고온 유지(Dwell High)', '최고 온도 유지 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-dwellhigh-stress" value="${nlDwellHighStress}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+        </div>
+        <div class="grid-2" style="margin-top:0.5rem">
+            <div>
+                ${HelpTooltip.labelWithHelp('하강(Ramp Down)', '저온으로 온도가 하강하는 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-rampdown-stress" value="${nlRampDownStress}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+            <div>
+                ${HelpTooltip.labelWithHelp('저온 유지(Dwell Low)', '최저 온도 유지 시간')}
+                <div class="input-with-unit">
+                    <input type="number" id="acc-nl-dwelllow-stress" value="${nlDwellLowStress}" min="1" step="1" oninput="updateNLFrequencies()">
+                    <span class="input-unit">분(min)</span>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:0.4rem; font-size:0.75rem; color:var(--accent-color); font-weight:bold; display:flex; justify-content:space-between; margin-bottom: 0.75rem;">
+            <span>1사이클 시간: <span id="nl-cycle-time-stress">${totalStressMin}</span>분</span>
+            <span>환산 가속 주파수: <span id="nl-freq-stress-val">${fStressCalc}</span> cycles/day</span>
+        </div>
+
         <div class="grid-2" style="margin-top:0.75rem">
             <div>
                 ${HelpTooltip.labelWithHelp('사용 최고온도', 'Tmax 사용')}
@@ -2783,13 +3119,140 @@ function renderNLInputs() {
             </div>
         </div>
         <div style="margin-top:0.75rem">
-        ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea)', 'NL 모델 Ea, 일반: 0.123 eV')}
-        <div class="input-with-unit">
-            <input type="number" id="acc-nl-ea" value="${nlEa}" min="0.01" step="0.01">
-            <span class="input-unit">eV</span>
-        </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                ${HelpTooltip.labelWithHelp('활성화 에너지 (Ea) 직접 입력', 'NL 모델 Ea, 일반: 0.123 eV')}
+                <span style="font-size:0.75rem; color:var(--accent-color); cursor:pointer; text-decoration:underline; margin-bottom:0.25rem" onclick="openAccReferenceModal('norris_landzberg')">
+                    <i class="fas fa-book" style="margin-right:0.25rem"></i>표준가이드 & 검증
+                </span>
+            </div>
+            <div class="input-with-unit">
+                <input type="number" id="acc-nl-ea" value="${nlEa}" min="0.01" step="0.01">
+                <span class="input-unit">eV</span>
+            </div>
         </div>`;
 }
+
+// 실시간 주파수 갱신 함수
+window.updateNLFrequencies = function() {
+    const ruUse = parseFloat(document.getElementById('acc-nl-rampup-use')?.value || 0);
+    const dhUse = parseFloat(document.getElementById('acc-nl-dwellhigh-use')?.value || 0);
+    const rdUse = parseFloat(document.getElementById('acc-nl-rampdown-use')?.value || 0);
+    const dlUse = parseFloat(document.getElementById('acc-nl-dwelllow-use')?.value || 0);
+
+    const ruStress = parseFloat(document.getElementById('acc-nl-rampup-stress')?.value || 0);
+    const dhStress = parseFloat(document.getElementById('acc-nl-dwellhigh-stress')?.value || 0);
+    const rdStress = parseFloat(document.getElementById('acc-nl-rampdown-stress')?.value || 0);
+    const dlStress = parseFloat(document.getElementById('acc-nl-dwelllow-stress')?.value || 0);
+
+    const sumUse = ruUse + dhUse + rdUse + dlUse;
+    const sumStress = ruStress + dhStress + rdStress + dlStress;
+
+    if (sumUse > 0) {
+        document.getElementById('nl-cycle-time-use').innerText = sumUse;
+        document.getElementById('nl-freq-use-val').innerText = (1440 / sumUse).toFixed(4);
+    }
+    if (sumStress > 0) {
+        document.getElementById('nl-cycle-time-stress').innerText = sumStress;
+        document.getElementById('nl-freq-stress-val').innerText = (1440 / sumStress).toFixed(4);
+    }
+};
+
+// Ea, n 역산기 제어 헬퍼 함수
+window.toggleRevFields = function() {
+    const type = document.getElementById('rev-type').value;
+    const s1Label = document.getElementById('rev-s1-label');
+    const s2Label = document.getElementById('rev-s2-label');
+    const s1Input = document.getElementById('rev-s1');
+    const s2Input = document.getElementById('rev-s2');
+
+    if (type === 'ea') {
+        s1Label.innerText = '온도 1 (°C)';
+        s2Label.innerText = '온도 2 (°C)';
+        if (s1Input.value === '5' || s1Input.value === '12') {
+            s1Input.value = '55';
+            s2Input.value = '125';
+        }
+    } else {
+        s1Label.innerText = '스트레스 1 (전압 등)';
+        s2Label.innerText = '스트레스 2 (전압 등)';
+        if (s1Input.value === '55' || s1Input.value === '125') {
+            s1Input.value = '5';
+            s2Input.value = '12';
+        }
+    }
+    document.getElementById('rev-result-panel').style.display = 'none';
+};
+
+window.calculateReverseParam = function() {
+    const type = document.getElementById('rev-type').value;
+    const s1 = parseFloat(document.getElementById('rev-s1').value);
+    const l1 = parseFloat(document.getElementById('rev-l1').value);
+    const s2 = parseFloat(document.getElementById('rev-s2').value);
+    const l2 = parseFloat(document.getElementById('rev-l2').value);
+
+    const resultPanel = document.getElementById('rev-result-panel');
+    const resultVal = document.getElementById('rev-result-val');
+    const applyBtn = document.getElementById('rev-apply-btn');
+
+    if (isNaN(s1) || isNaN(l1) || isNaN(s2) || isNaN(l2) || l1 <= 0 || l2 <= 0) {
+        alert('모든 입력 필드에 0보다 큰 유효한 숫자를 입력해 주세요.');
+        return;
+    }
+
+    if (s1 === s2) {
+        alert('스트레스(온도) 1과 2는 서로 다른 값이어야 합니다.');
+        return;
+    }
+
+    if (type === 'ea') {
+        const k = CONSTANTS.BOLTZMANN_EV || 8.617333262145e-5;
+        const t1K = s1 + 273.15;
+        const t2K = s2 + 273.15;
+        const ea = (k * Math.log(l1 / l2)) / (1 / t1K - 1 / t2K);
+        
+        resultVal.innerHTML = `계산된 Ea: <span style="color:var(--accent-color)">${ea.toFixed(4)}</span> eV`;
+        resultPanel.style.display = 'block';
+        
+        applyBtn.onclick = function() {
+            const eaInput = document.getElementById('acc-ea');
+            const modelSelect = document.getElementById('acc-model');
+            if (eaInput) {
+                eaInput.value = ea.toFixed(4);
+                accelerationState.ea = parseFloat(ea.toFixed(4));
+            }
+            if (modelSelect && !['arrhenius', 'peck', 'eyring', 'arrhenius_power'].includes(modelSelect.value)) {
+                alert(`가속 상수가 Ea = ${ea.toFixed(4)} eV로 저장되었습니다.\n현재 활성화된 모델은 Ea를 직접 사용하지 않습니다. 모델을 'Arrhenius' 또는 'Peck'으로 변경하여 적용해 보세요.`);
+            } else {
+                alert(`Ea = ${ea.toFixed(4)} eV가 가속 시험 설계에 반영되었습니다.`);
+            }
+            runAcceleration();
+        };
+    } else {
+        if (s1 <= 0 || s2 <= 0) {
+            alert('n 지수 역산 시 스트레스 값은 0보다 커야 합니다.');
+            return;
+        }
+        const n = Math.log(l1 / l2) / Math.log(s2 / s1);
+        
+        resultVal.innerHTML = `계산된 n: <span style="color:var(--accent-color)">${n.toFixed(4)}</span>`;
+        resultPanel.style.display = 'block';
+        
+        applyBtn.onclick = function() {
+            const nInput = document.getElementById('acc-n-power');
+            const modelSelect = document.getElementById('acc-model');
+            if (nInput) {
+                nInput.value = n.toFixed(4);
+                accelerationState.nPower = parseFloat(n.toFixed(4));
+            }
+            if (modelSelect && !['inverse_power', 'arrhenius_power'].includes(modelSelect.value)) {
+                alert(`가속 상수가 n = ${n.toFixed(4)}로 저장되었습니다.\n현재 활성화된 모델은 전압/전류 지수(n)를 직접 사용하지 않습니다. 모델을 'Inverse Power Law' 또는 'Arrhenius × IPL'으로 변경하여 적용해 보세요.`);
+            } else {
+                alert(`n = ${n.toFixed(4)} 지수가 가속 시험 설계에 반영되었습니다.`);
+            }
+            runAcceleration();
+        };
+    }
+};
 
 function renderCombinedInputs() {
     const vUse = accelerationState.vUse;
@@ -2917,6 +3380,38 @@ function saveCurrentAccInputs() {
         const val = parseFloat(document.getElementById('acc-nl-ea').value);
         if (!isNaN(val)) accelerationState.nlEa = val;
     }
+    if (document.getElementById('acc-nl-rampup-use')) {
+        const val = parseFloat(document.getElementById('acc-nl-rampup-use').value);
+        if (!isNaN(val)) accelerationState.nlRampUpUse = val;
+    }
+    if (document.getElementById('acc-nl-dwellhigh-use')) {
+        const val = parseFloat(document.getElementById('acc-nl-dwellhigh-use').value);
+        if (!isNaN(val)) accelerationState.nlDwellHighUse = val;
+    }
+    if (document.getElementById('acc-nl-rampdown-use')) {
+        const val = parseFloat(document.getElementById('acc-nl-rampdown-use').value);
+        if (!isNaN(val)) accelerationState.nlRampDownUse = val;
+    }
+    if (document.getElementById('acc-nl-dwelllow-use')) {
+        const val = parseFloat(document.getElementById('acc-nl-dwelllow-use').value);
+        if (!isNaN(val)) accelerationState.nlDwellLowUse = val;
+    }
+    if (document.getElementById('acc-nl-rampup-stress')) {
+        const val = parseFloat(document.getElementById('acc-nl-rampup-stress').value);
+        if (!isNaN(val)) accelerationState.nlRampUpStress = val;
+    }
+    if (document.getElementById('acc-nl-dwellhigh-stress')) {
+        const val = parseFloat(document.getElementById('acc-nl-dwellhigh-stress').value);
+        if (!isNaN(val)) accelerationState.nlDwellHighStress = val;
+    }
+    if (document.getElementById('acc-nl-rampdown-stress')) {
+        const val = parseFloat(document.getElementById('acc-nl-rampdown-stress').value);
+        if (!isNaN(val)) accelerationState.nlRampDownStress = val;
+    }
+    if (document.getElementById('acc-nl-dwelllow-stress')) {
+        const val = parseFloat(document.getElementById('acc-nl-dwelllow-stress').value);
+        if (!isNaN(val)) accelerationState.nlDwellLowStress = val;
+    }
 }
 
 function resetAccInputs() {
@@ -2944,6 +3439,14 @@ function resetAccInputs() {
         eyringSStress: 5,
         fUse: 1,
         fStress: 3,
+        nlRampUpUse: 360,
+        nlDwellHighUse: 360,
+        nlRampDownUse: 360,
+        nlDwellLowUse: 360,
+        nlRampUpStress: 30,
+        nlDwellHighStress: 30,
+        nlRampDownStress: 30,
+        nlDwellLowStress: 30,
         nlTmaxUse: 50,
         nlTmaxStress: 125,
         nlEa: 0.123
@@ -3168,8 +3671,21 @@ function runAcceleration() {
         const dtUse   = parseFloat(document.getElementById('acc-dt-use').value);
         const dtStress= parseFloat(document.getElementById('acc-dt-stress').value);
         const m       = parseFloat(document.getElementById('acc-m').value);
-        const fUse    = parseFloat(document.getElementById('acc-f-use').value);
-        const fStress = parseFloat(document.getElementById('acc-f-stress').value);
+        
+        // Ramp/Dwell로부터 주파수 역산
+        const ruUse = parseFloat(document.getElementById('acc-nl-rampup-use').value || 0);
+        const dhUse = parseFloat(document.getElementById('acc-nl-dwellhigh-use').value || 0);
+        const rdUse = parseFloat(document.getElementById('acc-nl-rampdown-use').value || 0);
+        const dlUse = parseFloat(document.getElementById('acc-nl-dwelllow-use').value || 0);
+        
+        const ruStress = parseFloat(document.getElementById('acc-nl-rampup-stress').value || 0);
+        const dhStress = parseFloat(document.getElementById('acc-nl-dwellhigh-stress').value || 0);
+        const rdStress = parseFloat(document.getElementById('acc-nl-rampdown-stress').value || 0);
+        const dlStress = parseFloat(document.getElementById('acc-nl-dwelllow-stress').value || 0);
+        
+        const fUse    = 1440 / (ruUse + dhUse + rdUse + dlUse);
+        const fStress = 1440 / (ruStress + dhStress + rdStress + dlStress);
+        
         const tMaxUse = parseFloat(document.getElementById('acc-nl-tmax-use').value);
         const tMaxStr = parseFloat(document.getElementById('acc-nl-tmax-stress').value);
         const nlEa    = parseFloat(document.getElementById('acc-nl-ea').value);
@@ -3309,7 +3825,21 @@ function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targe
     </div>
 
     <div style="margin-top:1.25rem">
-        ${formulaResult?.steps ? `<div class="formula-section">${formulaResult.steps}</div>` : ''}
+        ${formulaResult?.steps ? `
+        <div class="glass-card" style="position:relative">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem">
+                <h4 style="color:var(--text-secondary); margin:0">공식 및 계산 과정</h4>
+                <div style="display:flex; gap:0.5rem">
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaText('#acc-formula-section'); event.stopPropagation();" style="padding:0.25rem 0.5rem; font-size:0.75rem">
+                        <i class="fas fa-file-alt" style="margin-right:0.25rem"></i> 텍스트 복사
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="copyFormulaImage('#acc-formula-section'); event.stopPropagation();" style="padding:0.25rem 0.5rem; font-size:0.75rem">
+                        <i class="fas fa-image" style="margin-right:0.25rem"></i> 이미지 복사 (보고서용)
+                    </button>
+                </div>
+            </div>
+            <div id="acc-formula-section" class="formula-section" style="border:none; padding:0; background:none">${formulaResult.steps}</div>
+        </div>` : ''}
     </div>`;
 
     // 차트 그리기
@@ -3431,7 +3961,7 @@ function renderWarrantyInput() {
         <div class="glass-card" style="padding:1rem">
             <h4 class="section-title" style="font-size:0.9rem;margin-bottom:0.5rem">💡 Nevada 차트 입력 가이드</h4>
             <div style="font-size:0.8rem;line-height:1.8;color:var(--text-secondary)">
-                <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:0.75rem;font-family:monospace;font-size:0.72rem;overflow-x:auto;margin-bottom:0.5rem">
+                <div style="background:var(--bg-tertiary);border-radius:8px;padding:0.75rem;font-family:monospace;font-size:0.72rem;overflow-x:auto;margin-bottom:0.5rem">
                     <table style="border-collapse:collapse;width:100%">
                         <thead><tr><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--purple)">출하 기수</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--purple)">출하 수량</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">1기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">2기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--accent-color)">3기 고장</th><th style="padding:4px 8px;border-bottom:1px solid var(--border-color);color:var(--text-muted)">...</th></tr></thead>
                         <tbody>
@@ -3943,7 +4473,9 @@ function runWarrantyForecast() {
         }
  
         const cohorts = warrantyState.preprocessed?.cohorts || null;
-        warrantyState.forecastResult = WarrantyAnalysis.forecast(sel.name, sel.params, existing, future, months, cost, wm, averageAge, cohorts);
+        const confidenceVal = (warrantyState.confidence || 90) / 100;
+        
+        warrantyState.forecastResult = WarrantyAnalysis.forecastWithCI(sel.name, sel, existing, future, months, cost, confidenceVal, wm, averageAge, cohorts);
         const el = document.getElementById('warranty-forecast-result');
         if (el) {
             el.innerHTML = renderWarrantyForecastResult();
@@ -3961,24 +4493,245 @@ function runWarrantyForecast() {
 function renderWarrantyForecastResult() {
     const fr = warrantyState.forecastResult;
     if (!fr) return '';
+    const conf = warrantyState.confidence || 90;
     return `
     <div class="grid-4" style="margin-bottom:1rem">
-        <div class="stat-card"><div class="label">총 예상 고장</div><div class="value" style="color:var(--danger)">${fr.totalFailures.toLocaleString()}대</div></div>
-        <div class="stat-card"><div class="label">총 예상 비용</div><div class="value" style="color:var(--warning)">$${fr.totalCost.toLocaleString()}</div></div>
-        <div class="stat-card"><div class="label">피크 고장월</div><div class="value" style="color:var(--purple)">${fr.peakMonth}월</div></div>
-        <div class="stat-card"><div class="label">월평균 고장</div><div class="value" style="color:var(--accent-color)">${fr.avgFailures.toLocaleString()}대</div></div>
+        <div class="stat-card">
+            <div class="label">총 예상 고장</div>
+            <div class="value" style="color:var(--danger)">${fr.totalFailures.toLocaleString()}대</div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.25rem">${conf}% CI: ${fr.totalFailures_CI[0].toLocaleString()} ~ ${fr.totalFailures_CI[1].toLocaleString()}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">총 예상 비용</div>
+            <div class="value" style="color:var(--warning)">$${fr.totalCost.toLocaleString()}</div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.25rem">${conf}% CI: $${fr.totalCost_CI[0].toLocaleString()} ~ $${fr.totalCost_CI[1].toLocaleString()}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">피크 고장월</div>
+            <div class="value" style="color:var(--purple)">${fr.peakMonth}월</div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.25rem">최대 발생 기수</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">월평균 고장</div>
+            <div class="value" style="color:var(--accent-color)">${fr.avgFailures.toLocaleString()}대</div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.25rem">예예측 월평균 수치</div>
+        </div>
     </div>
-    <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">월별 예상 고장</h3><div class="chart-container" style="height:260px"><canvas id="warranty-bar-chart"></canvas></div></div>
-    <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">누적 고장/비용</h3><div class="chart-container" style="height:220px"><canvas id="warranty-cumul-chart"></canvas></div></div>
-    <div class="glass-card"><h3 class="section-title">월별 상세</h3><div class="table-wrapper" style="max-height:250px;overflow-y:auto"><table><thead><tr><th class="table-header">월</th><th class="table-header">고장</th><th class="table-header">비용</th><th class="table-header">누적 고장</th><th class="table-header">누적 비용</th></tr></thead><tbody>${fr.monthly.map(r=>`<tr><td class="table-cell">${r.month}월</td><td class="table-cell" style="color:var(--danger)">${r.failures.toFixed(1)}</td><td class="table-cell" style="color:var(--warning)">$${r.cost.toLocaleString()}</td><td class="table-cell">${r.cumulativeFailures.toFixed(1)}</td><td class="table-cell">$${r.cumulativeCost.toLocaleString()}</td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">월별 예상 고장 (점 추정치 및 ${conf}% 신뢰구간 밴드)</h3><div class="chart-container" style="height:260px"><canvas id="warranty-bar-chart"></canvas></div></div>
+    <div class="glass-card" style="margin-bottom:1rem"><h3 class="section-title">누적 고장 및 비용 (이중 축 신뢰구간 밴드)</h3><div class="chart-container" style="height:220px"><canvas id="warranty-cumul-chart"></canvas></div></div>
+    <div class="glass-card">
+        <h3 class="section-title">월별 상세 예측 결과 테이블 (${conf}% 신뢰구간 포함)</h3>
+        <div class="table-wrapper" style="max-height:285px;overflow-y:auto">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="table-header">월</th>
+                        <th class="table-header">예상 고장 수 (대)</th>
+                        <th class="table-header">예상 보증 비용</th>
+                        <th class="table-header">누적 고장 (대)</th>
+                        <th class="table-header">누적 보증 비용</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${fr.monthly.map(r => `
+                    <tr>
+                        <td class="table-cell">${r.month}월</td>
+                        <td class="table-cell" style="color:var(--danger)">
+                            <div style="font-weight:600">${r.failures.toFixed(1)}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">[${r.failures_CI[0].toFixed(1)} ~ ${r.failures_CI[1].toFixed(1)}]</div>
+                        </td>
+                        <td class="table-cell" style="color:var(--warning)">
+                            <div style="font-weight:600">$${r.cost.toLocaleString()}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">[$${r.cost_CI[0].toLocaleString()} ~ $${r.cost_CI[1].toLocaleString()}]</div>
+                        </td>
+                        <td class="table-cell">
+                            <div>${r.cumulativeFailures.toFixed(1)}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">[${r.cumulativeFailures_CI[0].toFixed(1)} ~ ${r.cumulativeFailures_CI[1].toFixed(1)}]</div>
+                        </td>
+                        <td class="table-cell">
+                            <div>$${r.cumulativeCost.toLocaleString()}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted)">[$${r.cumulativeCost_CI[0].toLocaleString()} ~ $${r.cumulativeCost_CI[1].toLocaleString()}]</div>
+                        </td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
 }
 
 function drawWarrantyCharts() {
     const fr = warrantyState.forecastResult;
     if (!fr) return;
     const labels = fr.monthly.map(r => `${r.month}월`);
-    ChartManager.drawBar('warranty-bar-chart', labels, [{ label: '예상 고장', data: fr.monthly.map(r => r.failures), color: CONSTANTS.CHART_COLORS.danger }], '예측 월', '고장 수');
-    ChartManager.drawDualAxis('warranty-cumul-chart', labels, { label: '누적 고장', data: fr.monthly.map(r => r.cumulativeFailures), color: CONSTANTS.CHART_COLORS.danger }, { label: '누적 비용($)', data: fr.monthly.map(r => r.cumulativeCost), color: CONSTANTS.CHART_COLORS.warning }, '예측 월');
+
+    // 1) 월별 예상 고장 차트 (Bar + CI Area)
+    const barDsets = [
+        {
+            label: '예상 고장 (점 추정)',
+            type: 'bar',
+            data: fr.monthly.map(r => r.failures),
+            backgroundColor: 'rgba(239, 68, 68, 0.75)',
+            borderColor: 'var(--danger)',
+            borderWidth: 1.5,
+            borderRadius: 3,
+            maxBarThickness: 32,
+            order: 2
+        },
+        {
+            label: '신뢰구간 상한',
+            type: 'line',
+            data: fr.monthly.map(r => r.failures_CI[1]),
+            borderColor: 'rgba(239, 68, 68, 0.35)',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2,
+            order: 1
+        },
+        {
+            label: '신뢰구간 하한',
+            type: 'line',
+            data: fr.monthly.map(r => r.failures_CI[0]),
+            borderColor: 'rgba(239, 68, 68, 0.35)',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            backgroundColor: 'rgba(239, 68, 68, 0.06)',
+            fill: '-1', // 바로 위의 상한선과 이 영역 사이를 반투명 채우기
+            tension: 0.2,
+            order: 1
+        }
+    ];
+
+    ChartManager.createOrUpdate('warranty-bar-chart', {
+        type: 'bar',
+        data: { labels, datasets: barDsets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, position: 'top' }
+            },
+            scales: {
+                x: { title: { display: true, text: '예측 월' } },
+                y: { title: { display: true, text: '고장 수 (대)' }, beginAtZero: true }
+            }
+        }
+    });
+
+    // 2) 누적 고장 및 비용 차트 (Dual axis + CI Areas)
+    const cumulDsets = [
+        // 누적 고장 (점 추정)
+        {
+            label: '누적 고장',
+            data: fr.monthly.map(r => r.cumulativeFailures),
+            borderColor: 'var(--danger)',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 2,
+            yAxisID: 'y',
+            fill: false
+        },
+        // 누적 고장 CI Upper
+        {
+            label: '누적 고장 CI 상한',
+            data: fr.monthly.map(r => r.cumulativeFailures_CI[1]),
+            borderColor: 'rgba(239, 68, 68, 0.25)',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            yAxisID: 'y',
+            fill: false,
+            tension: 0.3
+        },
+        // 누적 고장 CI Lower
+        {
+            label: '누적 고장 CI 하한',
+            data: fr.monthly.map(r => r.cumulativeFailures_CI[0]),
+            borderColor: 'rgba(239, 68, 68, 0.25)',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            backgroundColor: 'rgba(239, 68, 68, 0.05)',
+            fill: '-1',
+            yAxisID: 'y',
+            tension: 0.3
+        },
+        // 누적 비용 (점 추정)
+        {
+            label: '누적 비용($)',
+            data: fr.monthly.map(r => r.cumulativeCost),
+            borderColor: 'var(--warning)',
+            borderWidth: 2,
+            borderDash: [4, 2],
+            tension: 0.3,
+            pointRadius: 0,
+            yAxisID: 'y1',
+            fill: false
+        },
+        // 누적 비용 CI Upper
+        {
+            label: '누적 비용 CI 상한',
+            data: fr.monthly.map(r => r.cumulativeCost_CI[1]),
+            borderColor: 'rgba(245, 158, 11, 0.25)',
+            borderWidth: 0.8,
+            borderDash: [2, 2],
+            pointRadius: 0,
+            yAxisID: 'y1',
+            fill: false,
+            tension: 0.3
+        },
+        // 누적 비용 CI Lower
+        {
+            label: '누적 비용 CI 하한',
+            data: fr.monthly.map(r => r.cumulativeCost_CI[0]),
+            borderColor: 'rgba(245, 158, 11, 0.25)',
+            borderWidth: 0.8,
+            borderDash: [2, 2],
+            pointRadius: 0,
+            backgroundColor: 'rgba(245, 158, 11, 0.04)',
+            fill: '-1',
+            yAxisID: 'y1',
+            tension: 0.3
+        }
+    ];
+
+    ChartManager.createOrUpdate('warranty-cumul-chart', {
+        type: 'line',
+        data: { labels, datasets: cumulDsets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        filter: function(item) {
+                            // 범례가 너무 길어지므로 점 추정과 주요 선만 표시
+                            return ['누적 고', '누적 고장', '누적 비용($)'].some(n => item.text.startsWith(n)) && !item.text.includes('상한') && !item.text.includes('하한');
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { title: { display: true, text: '예측 월' } },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    title: { display: true, text: '누적 고장 수 (대)' },
+                    ticks: { callback: v => v.toLocaleString() }
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    title: { display: true, text: '누적 비용 ($)' },
+                    grid: { drawOnChartArea: false },
+                    ticks: { callback: v => '$' + v.toLocaleString() }
+                }
+            }
+        }
+    });
 }
 
 function drawWarrantyDistributionCharts() {
@@ -4137,39 +4890,49 @@ function drawWarrantyDistributionCharts() {
 
 
 // ═══════════════════════════════════════════
-// 열화 분석 탭
+// 열화 분석 탭 (일반 열화분석 & 가속열화분석 ADT)
 // ═══════════════════════════════════════════
-let degradState = { result: null, rawData: null };
+let degradState = { subTab: 'general', result: null, adtResult: null, rawData: null, adtRawData: null };
 
 function renderDegradationTab() {
+    const isGen = degradState.subTab === 'general';
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem">
         <div>
             <h2 class="section-title" style="margin-bottom:0.2rem">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>
-                열화 분석 (Degradation Analysis)
+                열화 및 가속열화분석 (Degradation & ADT)
             </h2>
-            <p style="color:var(--text-secondary);font-size:0.8rem;margin:0">시간에 따른 열화 경로 → 모델 적합 → 수명 예측</p>
+            <p style="color:var(--text-secondary);font-size:0.8rem;margin:0">시간에 따른 물리 성능 저하 데이터를 바탕으로 수명 및 가속 계수를 예측합니다.</p>
+        </div>
+        <!-- 서브 탭 네비게이션 -->
+        <div style="display:flex;gap:0.35rem;background:var(--bg-tertiary);padding:0.25rem;border-radius:8px;border:1px solid var(--border-color)">
+            <button class="btn btn-sm ${isGen ? 'btn-primary' : 'btn-secondary'}" onclick="switchDegradSubTab('general')" style="min-height:30px;height:30px">일반 열화분석</button>
+            <button class="btn btn-sm ${!isGen ? 'btn-primary' : 'btn-secondary'}" onclick="switchDegradSubTab('adt')" style="min-height:30px;height:30px">가속열화시험 (ADT)</button>
         </div>
     </div>
     <div class="grid-cols-1-2">
         <div style="display:flex;flex-direction:column;gap:1rem">
             <div class="glass-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
-                    <h3 class="section-title" style="margin:0">열화 데이터 입력</h3>
+                    <h3 class="section-title" style="margin:0">${isGen ? '일반 열화 데이터 입력' : 'ADT 가속열화 데이터 입력'}</h3>
                     <button class="btn btn-sm btn-secondary" onclick="fillDegradSample()">📋 샘플 데이터</button>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:0.85rem">
-                    ${HelpTooltip.labelWithHelp('데이터 (시료ID, 시간, 측정값)', '각 행: 시료ID, 시간, 측정값')}
+                    ${isGen 
+                        ? HelpTooltip.labelWithHelp('데이터 (시료ID, 시간, 측정값)', '각 행: 시료ID, 시간, 측정값') 
+                        : HelpTooltip.labelWithHelp('데이터 (시료ID, 스트레스, 시간, 측정값)', '각 행: 시료ID, 가속 온도(°C), 시간, 측정값')
+                    }
                     <!-- Handsontable 그리드 -->
                     <div id="degrad-hot-grid" style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden"></div>
+                    
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
                         <div class="glass-card" style="padding: 0.75rem; border: 1px dashed var(--border-color); margin: 0; background: var(--bg-tertiary);">
                             <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--warning);">1. 열화 고장 기준 설정</div>
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                 <div>
                                     ${HelpTooltip.labelWithHelp('임계값 (Threshold)', '성능 측정값이 이 값에 도달하면 고장으로 판정')}
-                                    <input type="number" id="degrad-threshold" class="input-field" value="50" step="1" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                    <input type="number" id="degrad-threshold" class="input-field" value="${isGen ? 50 : 20}" step="1" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
                                 </div>
                                 <div>
                                     ${HelpTooltip.labelWithHelp('열화 방향', '성능 수치가 증가하는 추세인지, 감소하는 추세인지 선택')}
@@ -4181,29 +4944,36 @@ function renderDegradationTab() {
                             </div>
                         </div>
                         <div class="glass-card" style="padding: 0.75rem; border: 1px dashed var(--border-color); margin: 0; background: var(--bg-tertiary);">
-                            <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--accent-color);">2. 분석 및 피팅 모델 설정</div>
+                            <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--accent-color);">2. 가속 및 피팅 모델 설정</div>
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                 <div>
                                     ${HelpTooltip.labelWithHelp('열화 예측 모델', '성능 측정데이터를 외삽할 수학적 회귀 모델')}
                                     <select id="degrad-model-sel" class="input-field" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
-                                        <option value="auto">최고 적합 (자동 추천)</option>
                                         <option value="linear">선형 (Linear)</option>
+                                        ${isGen ? '<option value="auto">최고 적합 (자동 추천)</option>' : ''}
                                         <option value="exponential">지수 (Exponential)</option>
+                                        ${isGen ? `
                                         <option value="power">거듭제곱 (Power)</option>
                                         <option value="log">로그 (Logarithmic)</option>
                                         <option value="gompertz">곰페르츠 (Gompertz)</option>
                                         <option value="lloyd">로이드-리포 (Lloyd-Lipow)</option>
-                                        <option value="sqrt">제곱근 (Square Root)</option>
+                                        <option value="sqrt">제곱근 (Square Root)</option>` : ''}
                                     </select>
                                 </div>
                                 <div>
-                                    ${HelpTooltip.labelWithHelp('수명 분포 모델', '각 시료별로 추정된 고장시간들을 피팅할 확률 분포')}
+                                    ${isGen 
+                                        ? HelpTooltip.labelWithHelp('수명 분포 모델', '각 시료별로 추정된 고장시간들을 피팅할 확률 분포')
+                                        : HelpTooltip.labelWithHelp('사용 온도 조건 (°C)', '상온 실사용 환경 온도 (수명 외삽 기준)')
+                                    }
+                                    ${isGen ? `
                                     <select id="degrad-dist-sel" class="input-field" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
                                         <option value="weibull">Weibull 2P</option>
                                         <option value="lognormal">Lognormal</option>
                                         <option value="normal">Normal</option>
                                         <option value="exponential">Exponential</option>
-                                    </select>
+                                    </select>` : `
+                                    <input type="number" id="degrad-usetemp" class="input-field" value="25" step="1" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; height: auto;" onchange="runDegradAnalysis()">
+                                    `}
                                 </div>
                             </div>
                         </div>
@@ -4212,23 +4982,47 @@ function renderDegradationTab() {
                 </div>
             </div>
             <div class="glass-card">
-                <h3 class="section-title">열화 분석이란?</h3>
+                <h3 class="section-title">${isGen ? '일반 열화 분석이란?' : '가속열화시험(ADT)이란?'}</h3>
                 <div style="font-size:0.85rem;line-height:1.7;color:var(--text-secondary)">
+                    ${isGen ? `
                     <p>시간에 따라 성능이 저하(열화)되는 데이터를 분석하여 수명을 추정합니다.</p>
                     <p><strong>D(t) = a + b · g(t)</strong> 등 모델 적합 후 임계값 도달 시간을 추정합니다.</p>
                     <ul style="padding-left:1.2rem;margin:0.5rem 0">
                         <li>선형: g(t) = t</li>
                         <li>지수: y = b·exp(a·t)</li>
                         <li>거듭제곱: g(t) = t^p</li>
-                        <li>로그/제곱근: ln(t), √t</li>
-                        <li>곰페르츠/로이드-리포: 비선형/특수 패턴</li>
                     </ul>
-                    <div class="info-box" style="border-color:rgba(245,158,11,0.3);color:var(--warning);font-size:0.8rem">📖 Ref: Meeker & Escobar (1998), Ch.21</div>
+                    <div class="info-box" style="border-color:rgba(245,158,11,0.3);color:var(--warning);font-size:0.8rem">📖 Ref: Meeker & Escobar (1998), Ch.21</div>`
+                    : `
+                    <p>상온에서는 수년 이상 걸리는 열화를 여러 조건의 가속 스트레스(예: 온도 60°C, 80°C, 100°C) 하에서 측정하여 수명을 단시간에 예측합니다.</p>
+                    <p><strong>Arrhenius Model 적용 가속 이론:</strong></p>
+                    <p>열화 속도 $b(T) = A \\cdot \\exp(-E_a / k T_K)$</p>
+                    <p>활성화 에너지 $E_a$를 유도하여 상온($25\\text{°C}$)에서의 열화 속도를 구하고 수명을 산출합니다.</p>
+                    <div class="info-box" style="border-color:rgba(245,158,11,0.3);color:var(--warning);font-size:0.8rem">📖 Ref: JEDEC JESD22-A108 / Meeker & Escobar (1998)</div>`
+                    }
                 </div>
             </div>
         </div>
-        <div id="degrad-result">${degradState.result ? renderDegradResult() : '<div class="glass-card empty-state" style="min-height:400px"><div style="font-weight:600;color:var(--text-secondary)">데이터 입력 후 분석 실행</div><div style="font-size:0.8rem;color:var(--text-muted)">열화 경로, 모델 적합, 수명 예측 결과가 표시됩니다.</div></div>'}</div>
+        <div id="degrad-result">
+            ${isGen 
+                ? (degradState.result ? renderDegradResult() : '<div class="glass-card empty-state" style="min-height:400px"><div style="font-weight:600;color:var(--text-secondary)">데이터 입력 후 분석 실행</div><div style="font-size:0.8rem;color:var(--text-muted)">열화 경로, 모델 적합, 수명 예측 결과가 표시됩니다.</div></div>')
+                : (degradState.adtResult ? renderADTResult() : '<div class="glass-card empty-state" style="min-height:400px"><div style="font-weight:600;color:var(--text-secondary)">데이터 입력 후 분석 실행</div><div style="font-size:0.8rem;color:var(--text-muted)">가속열화 피팅 및 활성화 에너지(Ea), 상온 외삽 수명 결과가 표시됩니다.</div></div>')
+            }
+        </div>
     </div>`;
+}
+
+function switchDegradSubTab(subTab) {
+    degradState.subTab = subTab;
+    const content = document.getElementById('tab-content');
+    if (content) {
+        content.innerHTML = renderDegradationTab();
+        setTimeout(() => {
+            initDegradGrid();
+            // 각 탭에 맞춰서 기본 샘플 로드
+            fillDegradSample();
+        }, 100);
+    }
 }
 
 let _degradHot = null;
@@ -4242,12 +5036,17 @@ function initDegradGrid() {
         _degradHot = null;
     }
 
-    const data = Array.from({length: 10}, () => Array(3).fill(null));
+    const isGen = degradState.subTab === 'general';
+    const data = isGen 
+        ? Array.from({length: 10}, () => Array(3).fill(null))
+        : Array.from({length: 15}, () => Array(4).fill(null));
 
     _degradHot = new Handsontable(container, {
         data,
-        colHeaders: ['시료ID', '시간', '측정값'],
-        columns: [{ type: 'text' }, { type: 'numeric' }, { type: 'numeric' }],
+        colHeaders: isGen ? ['시료ID', '시간', '측정값'] : ['시료ID', '온도(°C)', '시간', '측정값'],
+        columns: isGen 
+            ? [{ type: 'text' }, { type: 'numeric' }, { type: 'numeric' }]
+            : [{ type: 'text' }, { type: 'numeric' }, { type: 'numeric' }, { type: 'numeric' }],
         rowHeaders: true,
         height: 240,
         width: '100%',
@@ -4258,49 +5057,90 @@ function initDegradGrid() {
 }
 
 function fillDegradSample() {
-    // 전형적 절연 저항 열화 데이터 (감소 방향)
-    const sample = [
-        ['S1',0,100],['S1',200,97],['S1',400,92],['S1',600,86],['S1',800,78],['S1',1000,68],['S1',1200,56],['S1',1400,43],
-        ['S2',0,100],['S2',200,96],['S2',400,90],['S2',600,83],['S2',800,74],['S2',1000,63],['S2',1200,51],['S2',1400,38],
-        ['S3',0,100],['S3',200,98],['S3',400,94],['S3',600,89],['S3',800,82],['S3',1000,73],['S3',1200,62],['S3',1400,49],
-        ['S4',0,100],['S4',200,95],['S4',400,88],['S4',600,80],['S4',800,70],['S4',1000,58],['S4',1200,44],
-        ['S5',0,100],['S5',200,97],['S5',400,93],['S5',600,87],['S5',800,80],['S5',1000,71],['S5',1200,60],['S5',1400,47],
-    ];
-    if (_degradHot) {
-        _degradHot.loadData(sample);
-    }
-    document.getElementById('degrad-threshold').value = '50';
-    document.getElementById('degrad-direction').value = 'decreasing';
-    runDegradAnalysis();
-}
-
-function selectDegradModel(modelName) {
-    const select = document.getElementById('degrad-model-sel');
-    if (select) {
-        select.value = modelName;
+    if (degradState.subTab === 'general') {
+        const sample = [
+            ['S1',0,100],['S1',200,97],['S1',400,92],['S1',600,86],['S1',800,78],['S1',1000,68],['S1',1200,56],['S1',1400,43],
+            ['S2',0,100],['S2',200,96],['S2',400,90],['S2',600,83],['S2',800,74],['S2',1000,63],['S2',1200,51],['S2',1400,38],
+            ['S3',0,100],['S3',200,98],['S3',400,94],['S3',600,89],['S3',800,82],['S3',1000,73],['S3',1200,62],['S3',1400,49],
+            ['S4',0,100],['S4',200,95],['S4',400,88],['S4',600,80],['S4',800,70],['S4',1000,58],['S4',1200,44],
+            ['S5',0,100],['S5',200,97],['S5',400,93],['S5',600,87],['S5',800,80],['S5',1000,71],['S5',1200,60],['S5',1400,47],
+        ];
+        if (_degradHot) _degradHot.loadData(sample);
+        document.getElementById('degrad-threshold').value = '50';
+        document.getElementById('degrad-direction').value = 'decreasing';
+        document.getElementById('degrad-model-sel').value = 'linear';
+        runDegradAnalysis();
+    } else {
+        // ADT 가속열화 예제 데이터 (온도 가속 60°C, 80°C, 100°C)
+        const sample = [
+            // 60도 조건 (시료 S1, S2, S3)
+            ['S1', 60, 0, 100], ['S1', 60, 500, 95], ['S1', 60, 1000, 90], ['S1', 60, 1500, 85],
+            ['S2', 60, 0, 100], ['S2', 60, 500, 96], ['S2', 60, 1000, 91], ['S2', 60, 1500, 87],
+            ['S3', 60, 0, 100], ['S3', 60, 500, 94], ['S3', 60, 1000, 89], ['S3', 60, 1500, 84],
+            // 80도 조건 (시료 S4, S5, S6)
+            ['S4', 80, 0, 100], ['S4', 80, 200, 92], ['S4', 80, 400, 84], ['S4', 80, 600, 76],
+            ['S5', 80, 0, 100], ['S5', 80, 200, 93], ['S5', 80, 400, 86], ['S5', 80, 600, 78],
+            ['S6', 80, 0, 100], ['S6', 80, 200, 90], ['S6', 80, 400, 82], ['S6', 80, 600, 73],
+            // 100도 조건 (시료 S7, S8, S9)
+            ['S7', 100, 0, 100], ['S7', 100, 100, 87], ['S7', 100, 200, 74], ['S7', 100, 300, 61],
+            ['S8', 100, 0, 100], ['S8', 100, 100, 89], ['S8', 100, 200, 77], ['S8', 100, 300, 65],
+            ['S9', 100, 0, 100], ['S9', 100, 100, 85], ['S9', 100, 200, 71], ['S9', 100, 300, 57]
+        ];
+        if (_degradHot) _degradHot.loadData(sample);
+        document.getElementById('degrad-threshold').value = '20';
+        document.getElementById('degrad-direction').value = 'decreasing';
+        document.getElementById('degrad-model-sel').value = 'linear';
+        document.getElementById('degrad-usetemp').value = '25';
         runDegradAnalysis();
     }
 }
 
 function runDegradAnalysis() {
     const hotData = _degradHot ? _degradHot.getData() : [];
-    const text = hotData.filter(r => r[0] && r[1] !== null && r[2] !== null).map(r => r.join(',')).join('\n');
     const threshold = parseFloat(document.getElementById('degrad-threshold').value);
     const direction = document.getElementById('degrad-direction').value;
     const modelSel = document.getElementById('degrad-model-sel').value;
-    const distSel = document.getElementById('degrad-dist-sel')?.value || 'weibull';
 
-    if (!text.trim()) { alert('데이터를 입력하세요.'); return; }
     if (isNaN(threshold)) { alert('임계값을 입력하세요.'); return; }
 
-    const data = DegradationAnalysis.parseData(text);
-    if (data.length < 2) { alert('유효한 데이터가 2개 이상 필요합니다.'); return; }
+    if (degradState.subTab === 'general') {
+        const text = hotData.filter(r => r[0] && r[1] !== null && r[2] !== null).map(r => r.join(',')).join('\n');
+        if (!text.trim()) { alert('데이터를 입력하세요.'); return; }
+        const data = DegradationAnalysis.parseData(text);
+        if (data.length < 2) { alert('유효한 데이터가 2개 이상 필요합니다.'); return; }
 
-    degradState.rawData = data;
-    degradState.result = DegradationAnalysis.analyze(data, threshold, direction, modelSel, distSel);
+        const distSel = document.getElementById('degrad-dist-sel')?.value || 'weibull';
+        degradState.rawData = data;
+        degradState.result = DegradationAnalysis.analyze(data, threshold, direction, modelSel, distSel);
 
-    document.getElementById('degrad-result').innerHTML = renderDegradResult();
-    setTimeout(drawDegradCharts, 150);
+        const el = document.getElementById('degrad-result');
+        if (el) el.innerHTML = renderDegradResult();
+        setTimeout(drawDegradCharts, 150);
+    } else {
+        // ADT 분석 모드
+        const validRows = hotData.filter(r => r[0] && r[1] !== null && r[2] !== null && r[3] !== null);
+        if (validRows.length === 0) { alert('데이터를 입력하세요.'); return; }
+        
+        const data = validRows.map(r => ({
+            id: r[0],
+            stress: parseFloat(r[1]),
+            time: parseFloat(r[2]),
+            value: parseFloat(r[3])
+        }));
+
+        const useTemp = parseFloat(document.getElementById('degrad-usetemp').value) || 25;
+        
+        try {
+            degradState.adtRawData = data;
+            degradState.adtResult = ADTAnalysis.analyze(data, threshold, direction, useTemp, modelSel);
+            
+            const el = document.getElementById('degrad-result');
+            if (el) el.innerHTML = renderADTResult();
+            setTimeout(drawADTCharts, 150);
+        } catch(err) {
+            alert(err.message);
+        }
+    }
 }
 
 function renderDegradResult() {
@@ -4393,11 +5233,100 @@ function renderDegradResult() {
     `;
 }
 
+function renderADTResult() {
+    const r = degradState.adtResult;
+    if (!r) return '';
+    const df = r.distributionFit;
+
+    // Arrhenius 가속 피팅 수식 LaTeX
+    const derivLaTeX = `
+    $$\\begin{aligned}
+    \\ln(|b_i|) &= \\ln(A) - \\frac{E_a}{k \\cdot T_{K,i}} \\\\
+    E_a &= ${r.Ea.toFixed(4)} \\text{ eV} \\\\
+    R^2 \\text{ (Arrhenius Fit)} &= ${r.altR2.toFixed(4)} \\\\
+    b_{\\text{use}} (${r.useTemp}\\text{°C}) &= ${r.b_use.toExponential(4)} \\text{/hour}
+    \\end{aligned}$$`;
+
+    let distResultHtml = '';
+    if (df) {
+        distResultHtml = `
+        <div class="grid-4" style="margin-top:0.75rem">
+            <div class="stat-card"><div class="label">사용조건 수명 분포</div><div class="value" style="font-size:0.95rem;color:var(--accent-color)">${df.distribution}</div></div>
+            <div class="stat-card"><div class="label">η (사용조건 척도)</div><div class="value">${df.eta.toFixed(1)}h</div></div>
+            <div class="stat-card"><div class="label">β (공통 형상모수)</div><div class="value">${df.beta.toFixed(3)}</div></div>
+            <div class="stat-card"><div class="label">B10 수명 (${r.useTemp}°C)</div><div class="value" style="color:var(--danger);font-weight:700">${df.b10.toFixed(1)}h</div></div>
+        </div>`;
+    }
+
+    return `
+    <div class="grid-4" style="margin-bottom:1rem">
+        <div class="stat-card"><div class="label">총 가속 시료 수</div><div class="value">${r.unitsWithLifetimes.length}대</div></div>
+        <div class="stat-card"><div class="label">활성화 에너지 (Ea)</div><div class="value warning">${r.Ea.toFixed(4)} eV</div></div>
+        <div class="stat-card"><div class="label">가속 피팅 상관계수 R²</div><div class="value accent">${r.altR2.toFixed(4)}</div></div>
+        <div class="stat-card"><div class="label">예상 평균 수명 (MTTF)</div><div class="value success">${df ? Math.round(df.mttf).toLocaleString() : Math.round(r.meanPseudo).toLocaleString()}h</div></div>
+    </div>
+
+    <div class="glass-card" style="margin-bottom:1rem">
+        <h3 class="section-title">가속 조건별 실측 열화 경로</h3>
+        <div class="chart-container" style="height:280px"><canvas id="degrad-path-chart"></canvas></div>
+    </div>
+
+    <div class="glass-card" style="margin-bottom:1rem">
+        <h3 class="section-title">Arrhenius 가속 모델 적합선 ($1/T_K$ vs $\\ln|b|$)</h3>
+        <div class="chart-container" style="height:260px"><canvas id="adt-arrhenius-chart"></canvas></div>
+    </div>
+
+    <!-- 수식 상세 아코디언 -->
+    <div class="accordion" style="margin-bottom:1rem; width: 100%">
+        <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+            수식 유도 및 Arrhenius 피팅 도출 과정 (KaTeX)
+            <span class="accordion-arrow">▼</span>
+        </div>
+        <div class="accordion-body">
+            <div class="formula-section" style="margin-top:0">
+                ${derivLaTeX}
+            </div>
+        </div>
+    </div>
+
+    <div class="glass-card" style="margin-bottom:1rem">
+        <h3 class="section-title">시료별 사용 온도 (${r.useTemp}°C) 기준 가상 고장시간 (Pseudo failure time)</h3>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="table-header">시료 ID</th>
+                        <th class="table-header">가속 온도</th>
+                        <th class="table-header">가속 조건 열화 속도 (b)</th>
+                        <th class="table-header">사용 조건 예측속도 (b_use)</th>
+                        <th class="table-header">가상 고장시간 (Pseudo Life)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${r.unitsWithLifetimes.map(u => `
+                    <tr>
+                        <td class="table-cell" style="font-weight:600">${u.id}</td>
+                        <td class="table-cell">${u.stress}°C</td>
+                        <td class="table-cell">${u.b_est.toExponential(4)}</td>
+                        <td class="table-cell">${u.b_use_individual.toExponential(4)}</td>
+                        <td class="table-cell" style="color:var(--accent-color);font-weight:600">${u.tPseudo.toLocaleString(undefined, {maximumFractionDigits: 1})}h</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <h3 class="section-title">사용 온도 (${r.useTemp}°C) 조건의 예측 수명 분포 CDF</h3>
+        <div class="chart-container" style="height:250px"><canvas id="degrad-lifetime-chart"></canvas></div>
+        ${distResultHtml}
+    </div>`;
+}
+
 function drawDegradCharts() {
     const r = degradState.result;
     if (!r) return;
 
-    // 열화 경로 차트: 시료별 실측 + 최적 모델 예측선
     const UNIT_COLORS = ['#38bdf8','#22c55e','#a78bfa','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316'];
     const groups = DegradationAnalysis.groupByUnit(degradState.rawData);
     const unitIds = Object.keys(groups);
@@ -4406,7 +5335,6 @@ function drawDegradCharts() {
     const datasets = [];
     unitIds.forEach((id, i) => {
         const color = UNIT_COLORS[i % UNIT_COLORS.length];
-        // 실측 데이터 (점)
         datasets.push({
             label: id,
             data: groups[id].map(p => ({ x: p.time, y: p.value })),
@@ -4416,7 +5344,6 @@ function drawDegradCharts() {
             showLine: false,
             pointStyle: 'circle',
         });
-        // 적합 모델 (선) — 해당 시료의 최적 모델
         const unit = r.units.find(u => u.id === id);
         if (unit && unit.bestModel) {
             const pred = DegradationAnalysis.predict(unit.bestModel, unit.bestModel.model, tMax);
@@ -4433,7 +5360,6 @@ function drawDegradCharts() {
         }
     });
 
-    // 임계선
     datasets.push({
         label: `임계값 (${r.threshold})`,
         data: [{ x: 0, y: r.threshold }, { x: tMax, y: r.threshold }],
@@ -4461,7 +5387,6 @@ function drawDegradCharts() {
         },
     });
 
-    // 추정 수명 분포 차트
     if (r.lifetimes.length >= 3 && r.lifetimeDist) {
         const ld = r.lifetimeDist;
         const D = Distributions;
@@ -4506,6 +5431,174 @@ function drawDegradCharts() {
                 scales: {
                     x: { type: 'linear', title: { display: true, text: '추정 수명' } },
                     y: { title: { display: true, text: 'F(t)' }, min: 0, max: 1, ticks: { callback: v => (v*100).toFixed(0) + '%' } },
+                }
+            }
+        });
+    }
+}
+
+function drawADTCharts() {
+    const r = degradState.adtResult;
+    if (!r) return;
+
+    // 1. 실측 데이터 시각화 (온도 조건별 다른 색상)
+    const STRESS_COLORS = { 60: '#38bdf8', 80: '#f59e0b', 100: '#ef4444' };
+    const datasets = [];
+    
+    // 시료별 데이터 분할
+    const groups = {};
+    for (const d of degradState.adtRawData) {
+        if (!groups[d.id]) groups[d.id] = [];
+        groups[d.id].push(d);
+    }
+
+    const tMax = Math.max(...degradState.adtRawData.map(d => d.time)) * 1.2;
+
+    Object.keys(groups).forEach(id => {
+        const pts = groups[id].sort((a,b) => a.time - b.time);
+        const stress = pts[0].stress;
+        const color = STRESS_COLORS[stress] || '#a78bfa';
+
+        datasets.push({
+            label: `${id} (${stress}°C)`,
+            data: pts.map(p => ({ x: p.time, y: p.value })),
+            borderColor: color,
+            backgroundColor: color,
+            pointRadius: 4,
+            showLine: true,
+            borderWidth: 1.5,
+            fill: false,
+            tension: 0.2
+        });
+    });
+
+    // 임계선 추가
+    datasets.push({
+        label: `임계값 (${r.threshold})`,
+        data: [{ x: 0, y: r.threshold }, { x: tMax, y: r.threshold }],
+        borderColor: '#ffffff',
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        showLine: true,
+        fill: false
+    });
+
+    ChartManager.createOrUpdate('degrad-path-chart', {
+        type: 'line',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        filter: item => !item.text.includes('임계값')
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'linear', title: { display: true, text: '시간 (시간)' } },
+                y: { type: 'linear', title: { display: true, text: '성능 열화 수치' } }
+            }
+        }
+    });
+
+    // 2. Arrhenius 가속 피팅 차트 (1/T_K vs ln|b|)
+    const arrhData = r.altPoints.map(pt => ({ x: pt.x, y: pt.y }));
+    // 회귀 분석 직선 데이터
+    const xMin = Math.min(...arrhData.map(d => d.x)) * 0.95;
+    const xMax = Math.max(...arrhData.map(d => d.x)) * 1.05;
+    
+    // slope, intercept 복원
+    const BOLTZMANN = 8.617333262145e-5;
+    const regSlope = -r.Ea / BOLTZMANN;
+    const regIntercept = Math.log(r.A);
+    const lineData = [
+        { x: xMin, y: regIntercept + regSlope * xMin },
+        { x: xMax, y: regIntercept + regSlope * xMax }
+    ];
+
+    ChartManager.createOrUpdate('adt-arrhenius-chart', {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: '스트레스 조건별 대표 열화속도 (ln|b|)',
+                    data: arrhData,
+                    borderColor: 'var(--warning)',
+                    backgroundColor: 'var(--warning)',
+                    pointRadius: 6,
+                    showLine: false
+                },
+                {
+                    label: 'Arrhenius 피팅 선',
+                    data: lineData,
+                    borderColor: 'var(--accent-color)',
+                    borderWidth: 2,
+                    showLine: true,
+                    pointRadius: 0,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: item => `1/T_K = ${item.raw.x.toExponential(4)}, ln|b| = ${item.raw.y.toFixed(3)}`
+                    }
+                }
+            },
+            scales: {
+                x: { 
+                    type: 'linear', 
+                    title: { display: true, text: '절대온도 역수 (1/T_K)' },
+                    ticks: { callback: v => v.toExponential(3) }
+                },
+                y: { type: 'linear', title: { display: true, text: '열화 속도 자연로그 (ln|b|)' } }
+            }
+        }
+    });
+
+    // 3. 사용 조건 수명분포 CDF 차트
+    if (r.pseudoLifetimes.length >= 3 && r.distributionFit) {
+        const df = r.distributionFit;
+        const ltMax = Math.max(...r.pseudoLifetimes) * 1.6;
+        const dataPoints = [];
+
+        for (let i = 0; i <= 100; i++) {
+            const t = (ltMax * i) / 100;
+            const cdf = Distributions.Weibull.cdf(t, df.eta, df.beta);
+            dataPoints.push({ x: t, y: cdf });
+        }
+
+        ChartManager.createOrUpdate('degrad-lifetime-chart', {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: `F(t) 수명 누적 분포 (Weibull 2P 적합)`,
+                        data: dataPoints,
+                        borderColor: 'var(--success)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2.5
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'linear', title: { display: true, text: `추정 Pseudo 수명 (시간, ${r.useTemp}°C 기준)` } },
+                    y: { title: { display: true, text: '고장 확률 F(t)' }, min: 0, max: 1, ticks: { callback: v => (v*100).toFixed(0) + '%' } }
                 }
             }
         });
@@ -4635,6 +5728,214 @@ if (document.readyState === 'loading') {
     switchTab('planning');
 }
 
+function applyAccPreset(modelType, value) {
+    if (!value) return;
+    if (modelType === 'arrhenius') {
+        const val = parseFloat(value);
+        accelerationState.ea = val;
+        const eaInput = document.getElementById('acc-ea');
+        if (eaInput) eaInput.value = val;
+    } else if (modelType === 'peck') {
+        const parts = value.split('|');
+        const eaVal = parseFloat(parts[0]);
+        const nVal = parseFloat(parts[1]);
+        accelerationState.ea = eaVal;
+        accelerationState.nPeck = nVal;
+        
+        const eaInput = document.getElementById('acc-ea');
+        const nInput = document.getElementById('acc-n-peck');
+        if (eaInput) eaInput.value = eaVal;
+        if (nInput) nInput.value = nVal;
+    } else if (modelType === 'coffin_manson') {
+        const val = parseFloat(value);
+        accelerationState.m = val;
+        const mInput = document.getElementById('acc-m');
+        if (mInput) mInput.value = val;
+    } else if (modelType === 'inverse_power') {
+        const val = parseFloat(value);
+        accelerationState.nPower = val;
+        const nInput = document.getElementById('acc-n-power');
+        if (nInput) nInput.value = val;
+    } else if (modelType === 'eyring') {
+        const parts = value.split('|');
+        const eaVal = parseFloat(parts[0]);
+        const bVal = parseFloat(parts[1]);
+        accelerationState.ea = eaVal;
+        accelerationState.eyringB = bVal;
+        
+        const eaInput = document.getElementById('acc-ea');
+        const bInput = document.getElementById('acc-eyring-b');
+        if (eaInput) eaInput.value = eaVal;
+        if (bInput) bInput.value = bVal;
+    }
+    
+    // 계산 즉시 갱신
+    try { runAcceleration(); } catch(e) {}
+}
+
+function copyFormulaText(selector) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    
+    const steps = el.querySelectorAll('.formula-step');
+    let plainText = "";
+    let htmlText = `<div style="font-family:'Malgun Gothic',sans-serif; line-height:1.6; color:#333;">`;
+    
+    if (steps.length > 0) {
+        steps.forEach((step, idx) => {
+            const labelEl = step.querySelector('span');
+            const label = labelEl ? labelEl.innerText.trim() : "";
+            
+            const latexNode = step.querySelector('annotation[encoding="application/x-tex"]');
+            let latex = "";
+            if (latexNode) {
+                latex = latexNode.textContent.trim();
+            } else {
+                const textNodes = [];
+                step.childNodes.forEach(n => {
+                    if (n !== labelEl && n.nodeType === Node.TEXT_NODE) {
+                        textNodes.push(n.textContent.trim());
+                    } else if (n !== labelEl && n.nodeType === Node.ELEMENT_NODE) {
+                        textNodes.push(n.innerText.trim());
+                    }
+                });
+                latex = textNodes.join(" ").trim();
+            }
+            
+            if (label) {
+                plainText += `[${label}]\n`;
+                htmlText += `<p style="margin: 8px 0 4px 0; font-weight: bold; color: #0284c7;">${idx + 1}. ${label}</p>`;
+            }
+            
+            if (latex) {
+                plainText += `${latex}\n\n`;
+                htmlText += `<div style="margin: 4px 0 12px 16px; padding: 6px 12px; background: #f8fafc; border-left: 3px solid #cbd5e1; font-family: 'Courier New', monospace; font-size: 0.9em;">$${latex}$</div>`;
+            }
+        });
+    } else {
+        plainText = el.innerText || el.textContent;
+        htmlText += `<p>${el.innerHTML}</p>`;
+    }
+    
+    htmlText += `</div>`;
+
+    try {
+        const textBlob = new Blob([plainText.trim()], { type: 'text/plain' });
+        const htmlBlob = new Blob([htmlText], { type: 'text/html' });
+        
+        navigator.clipboard.write([
+            new ClipboardItem({
+                'text/plain': textBlob,
+                'text/html': htmlBlob
+            })
+        ]).then(() => {
+            showCopyToast('수식 텍스트 및 서식이 복사되었습니다.');
+        }).catch(err => {
+            navigator.clipboard.writeText(plainText.trim()).then(() => {
+                showCopyToast('수식 텍스트가 복사되었습니다.');
+            });
+        });
+    } catch (e) {
+        navigator.clipboard.writeText(plainText.trim()).then(() => {
+            showCopyToast('수식 텍스트가 복사되었습니다.');
+        });
+    }
+}
+
+function copyFormulaImage(selector) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+
+    showCopyToast('공식 이미지를 생성하고 있습니다...');
+
+    html2canvas(el, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        onclone: (clonedDoc) => {
+            const target = clonedDoc.querySelector(selector);
+            if (!target) return;
+            
+            target.style.background = '#ffffff';
+            target.style.color = '#333333';
+            target.style.padding = '20px';
+            target.style.borderRadius = '8px';
+            target.style.border = '1px solid #e2e8f0';
+            target.style.boxShadow = 'none';
+            
+            target.querySelectorAll('*').forEach(child => {
+                child.style.setProperty('color', '#333333', 'important');
+                if (child.style.backgroundColor) {
+                    child.style.backgroundColor = 'transparent';
+                }
+                if (child.classList.contains('katex') || child.classList.contains('katex-html')) {
+                    child.style.setProperty('color', '#1e293b', 'important');
+                }
+                if (child.tagName === 'span' || child.tagName === 'SPAN') {
+                    child.style.setProperty('color', '#1e293b', 'important');
+                }
+            });
+        }
+    }).then(canvas => {
+        canvas.toBlob(blob => {
+            if (!blob) {
+                showCopyToast('이미지 변환에 실패했습니다.');
+                return;
+            }
+            try {
+                navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': blob })
+                ]).then(() => {
+                    showCopyToast('공식 이미지가 복사되었습니다! 워드나 한글에 Ctrl+V로 붙여넣으세요.');
+                }).catch(err => {
+                    console.error('이미지 복사 실패:', err);
+                    showCopyToast('이미지 복사 권한 오류가 발생했습니다.');
+                });
+            } catch (e) {
+                showCopyToast('이미지 복사를 지원하지 않는 브라우저입니다.');
+            }
+        }, 'image/png');
+    }).catch(err => {
+        console.error(err);
+        showCopyToast('이미지 캡처 중 오류가 발생했습니다.');
+    });
+}
+
+function showCopyToast(msg) {
+    const oldToast = document.getElementById('formula-copy-toast');
+    if (oldToast) oldToast.remove();
+    
+    const toast = document.createElement('div');
+    toast.id = 'formula-copy-toast';
+    toast.style.position = 'fixed';
+    toast.style.bottom = '2rem';
+    toast.style.right = '2rem';
+    toast.style.backgroundColor = 'var(--bg-secondary)';
+    toast.style.color = 'var(--text-primary)';
+    toast.style.border = '1px solid var(--accent-color)';
+    toast.style.boxShadow = '0 8px 32px var(--accent-glow)';
+    toast.style.padding = '0.75rem 1.25rem';
+    toast.style.borderRadius = '8px';
+    toast.style.fontSize = '0.85rem';
+    toast.style.zIndex = '9999';
+    toast.style.transition = 'all 0.3s ease';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.opacity = '0';
+    toast.innerHTML = `<i class="fas fa-check-circle" style="color:var(--success);margin-right:0.5rem"></i> ${msg}`;
+    document.body.appendChild(toast);
+    
+    toast.offsetHeight;
+    toast.style.transform = 'translateY(0)';
+    toast.style.opacity = '1';
+    
+    setTimeout(() => {
+        toast.style.transform = 'translateY(10px)';
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.remove(); }, 300);
+    }, 2500);
+}
+
 // ─── 가속 수명 시험 레퍼런스 모달 & 값 설정 ───
 function openAccReferenceModal(modelType) {
     const data = Acceleration.REFERENCE_DATA[modelType];
@@ -4654,6 +5955,10 @@ function openAccReferenceModal(modelType) {
         calculatedVal = Acceleration.calcCoffinManson(data.verification.inputs.m, data.verification.inputs.dtUse, data.verification.inputs.dtStress);
     } else if (modelType === 'inverse_power') {
         calculatedVal = Acceleration.calcInversePower(data.verification.inputs.n, data.verification.inputs.vUse, data.verification.inputs.vStress);
+    } else if (modelType === 'eyring') {
+        calculatedVal = Acceleration.calcEyring(data.verification.inputs.ea, data.verification.inputs.useTemp, data.verification.inputs.stressTemp, data.verification.inputs.b, data.verification.inputs.useS, data.verification.inputs.stressS);
+    } else if (modelType === 'norris_landzberg') {
+        calculatedVal = Acceleration.calcNorrisLandzberg(data.verification.inputs.m, data.verification.inputs.fUse, data.verification.inputs.fStress, data.verification.inputs.dtUse, data.verification.inputs.dtStress, data.verification.inputs.tMaxUse, data.verification.inputs.tMaxStress, data.verification.inputs.ea);
     }
 
     const calculatedValStr = calculatedVal.toFixed(4);
@@ -4665,7 +5970,7 @@ function openAccReferenceModal(modelType) {
 
     const modalHtml = `
     <div id="acc-ref-modal" class="modal-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);">
-        <div class="modal-content glass-card" style="width:95%;max-width:780px;max-height:90vh;overflow-y:auto;background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.08);padding:2rem;border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.6);color:var(--text-primary);position:relative">
+        <div class="modal-content glass-card" style="width:95%;max-width:920px;max-height:90vh;overflow-y:auto;background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.08);padding:2rem;border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.6);color:var(--text-primary);position:relative">
             <!-- 닫기 버튼 -->
             <button onclick="document.getElementById('acc-ref-modal').remove()" style="position:absolute;top:1.25rem;right:1.25rem;background:none;border:none;color:var(--text-secondary);font-size:1.75rem;cursor:pointer;line-height:1;transition:color 0.2s" onmouseover="this.style.color='var(--accent-color)'" onmouseout="this.style.color='var(--text-secondary)'">&times;</button>
             
@@ -4681,24 +5986,24 @@ function openAccReferenceModal(modelType) {
                 <i class="fas fa-bookmark" style="margin-right:0.5rem;color:var(--warning)"></i>1. 표준 가속 파라미터 레퍼런스
             </h4>
             <div class="table-wrapper" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:0.5rem;margin-bottom:1.75rem;overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;text-align:left;min-width:780px">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;text-align:left;min-width:850px">
                     <thead>
                         <tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:12%">기호</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:15%">기호</th>
                             <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:20%">고장 현상</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:12%">권장 범위</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:18%">근거 규격·논문</th>
-                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:38%">상세 가이드</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:13%">권장 범위</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:17%">근거 규격·논문</th>
+                            <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:35%">상세 가이드</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${data.parameters.map(p => `
                             <tr style="border-bottom:1px solid rgba(255,255,255,0.05)" onmouseover="this.style.background='rgba(56,189,248,0.02)'" onmouseout="this.style.background='transparent'">
                                 <td style="padding:0.75rem 0.6rem;font-weight:bold;color:var(--warning);font-size:0.85rem;white-space:nowrap">${p.symbol}</td>
-                                <td style="padding:0.75rem 0.6rem;color:var(--text-primary);font-weight:500;word-break:keep-all">${p.name}</td>
+                                <td style="padding:0.75rem 0.6rem;color:var(--text-primary);font-weight:500;word-break:normal;overflow-wrap:break-word">${p.name}</td>
                                 <td style="padding:0.75rem 0.6rem;color:var(--accent-color);font-weight:600;white-space:nowrap">${p.range}</td>
-                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);word-break:keep-all"><strong>${p.source}</strong></td>
-                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);line-height:1.4;word-break:keep-all">${p.details}</td>
+                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);word-break:normal;overflow-wrap:break-word"><strong>${p.source}</strong></td>
+                                <td style="padding:0.75rem 0.6rem;font-size:0.78rem;color:var(--text-secondary);line-height:1.4;word-break:normal;overflow-wrap:break-word">${p.details}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -4732,25 +6037,25 @@ function openAccReferenceModal(modelType) {
                     <div>
                         <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.85rem">■ 계산 정밀도 대조 결과</div>
                         
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; background:rgba(245,158,11,0.04); border:1px solid rgba(245,158,11,0.1); border-radius:8px; padding:0.75rem 1rem">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem; background:rgba(245,158,11,0.04); border:1px solid rgba(245,158,11,0.1); border-radius:8px; padding:0.75rem 1rem">
                             <span style="font-size:0.82rem; color:var(--text-secondary)">문헌 기재 값 (AF)</span>
-                            <span style="font-size:1.15rem; font-weight:700; color:var(--warning)">${targetValStr}</span>
+                            <span style="font-size:1.15rem; font-weight:700; color:var(--warning); word-break:break-all">${targetValStr}</span>
                         </div>
                         
-                        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(34,197,94,0.04); border:1px solid rgba(34,197,94,0.1); border-radius:8px; padding:0.75rem 1rem">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; background:rgba(34,197,94,0.04); border:1px solid rgba(34,197,94,0.1); border-radius:8px; padding:0.75rem 1rem">
                             <span style="font-size:0.82rem; color:var(--text-secondary)">REA 엔진 계산값</span>
-                            <span style="font-size:1.15rem; font-weight:700; color:var(--success)">${calculatedValStr}</span>
+                            <span style="font-size:1.15rem; font-weight:700; color:var(--success); word-break:break-all">${calculatedValStr}</span>
                         </div>
                     </div>
                     
                     <div style="margin-top:1.25rem">
                         ${isMatched 
-                            ? `<div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.25); border-radius:8px; padding:0.75rem; font-size:0.82rem; color:var(--success); text-align:center; display:flex; align-items:center; justify-content:center; gap:0.4rem; font-weight:500">
+                            ? `<div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.25); border-radius:8px; padding:0.75rem; font-size:0.82rem; color:var(--success); text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:0.4rem; font-weight:500; line-height:1.3">
                                  <i class="fas fa-check-double" style="font-size:0.95rem"></i>
                                  <span>정밀 정합성 확인 완료 (오차 ${diffPercent.toFixed(3)}%)</span>
                                </div>`
-                            : `<div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:0.75rem; font-size:0.82rem; color:var(--danger); text-align:center; font-weight:500">
-                                 <i class="fas fa-exclamation-triangle" style="margin-right:0.35rem"></i>
+                            : `<div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:0.75rem; font-size:0.82rem; color:var(--danger); text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:0.4rem; font-weight:500; line-height:1.3">
+                                 <i class="fas fa-exclamation-triangle" style="font-size:0.95rem"></i>
                                  <span>오차 확인 중 (상수 정밀도 비교)</span>
                                </div>`
                         }
@@ -4809,6 +6114,28 @@ function applyVerificationInputs(modelType, inputs) {
             if (inputs.vUse !== undefined) document.getElementById('acc-v-use').value = inputs.vUse;
             if (inputs.vStress !== undefined) document.getElementById('acc-v-stress').value = inputs.vStress;
             if (inputs.n !== undefined) document.getElementById('acc-n-power').value = inputs.n;
+        } else if (modelType === 'eyring') {
+            if (inputs.useTemp !== undefined) document.getElementById('acc-t-use').value = inputs.useTemp;
+            if (inputs.stressTemp !== undefined) document.getElementById('acc-t-stress').value = inputs.stressTemp;
+            if (inputs.ea !== undefined) document.getElementById('acc-ea').value = inputs.ea;
+            if (inputs.b !== undefined) document.getElementById('acc-eyring-b').value = inputs.b;
+            if (inputs.useS !== undefined) document.getElementById('acc-eyring-s-use').value = inputs.useS;
+            if (inputs.stressS !== undefined) document.getElementById('acc-eyring-s-stress').value = inputs.stressS;
+        } else if (modelType === 'norris_landzberg') {
+            if (inputs.dtUse !== undefined) document.getElementById('acc-dt-use').value = inputs.dtUse;
+            if (inputs.dtStress !== undefined) document.getElementById('acc-dt-stress').value = inputs.dtStress;
+            if (inputs.m !== undefined) document.getElementById('acc-m').value = inputs.m;
+            if (inputs.nlRampUpUse !== undefined) document.getElementById('acc-nl-rampup-use').value = inputs.nlRampUpUse;
+            if (inputs.nlDwellHighUse !== undefined) document.getElementById('acc-nl-dwellhigh-use').value = inputs.nlDwellHighUse;
+            if (inputs.nlRampDownUse !== undefined) document.getElementById('acc-nl-rampdown-use').value = inputs.nlRampDownUse;
+            if (inputs.nlDwellLowUse !== undefined) document.getElementById('acc-nl-dwelllow-use').value = inputs.nlDwellLowUse;
+            if (inputs.nlRampUpStress !== undefined) document.getElementById('acc-nl-rampup-stress').value = inputs.nlRampUpStress;
+            if (inputs.nlDwellHighStress !== undefined) document.getElementById('acc-nl-dwellhigh-stress').value = inputs.nlDwellHighStress;
+            if (inputs.nlRampDownStress !== undefined) document.getElementById('acc-nl-rampdown-stress').value = inputs.nlRampDownStress;
+            if (inputs.nlDwellLowStress !== undefined) document.getElementById('acc-nl-dwelllow-stress').value = inputs.nlDwellLowStress;
+            if (inputs.tMaxUse !== undefined) document.getElementById('acc-nl-tmax-use').value = inputs.tMaxUse;
+            if (inputs.tMaxStress !== undefined) document.getElementById('acc-nl-tmax-stress').value = inputs.tMaxStress;
+            if (inputs.ea !== undefined) document.getElementById('acc-nl-ea').value = inputs.ea;
         }
 
         // 3. 모달 제거

@@ -16,25 +16,36 @@ const ReliabilityAnalysis = (() => {
   // ─────────────────────────────────────────────
   // MLE 파라미터 추정 (Nelder-Mead)
   // ─────────────────────────────────────────────
-  function fitDistribution(distName, failures, censored) {
+  function fitDistribution(distName, failures, censored, arbitraryData = null) {
     /**
      * 분포 적합 (MLE via Nelder-Mead)
      * Returns: { params, ll, dist } or null
      */
     const D = Distributions;
+    const isArbitrary = Array.isArray(arbitraryData) && arbitraryData.length > 0;
 
     switch (distName) {
       case 'weibull': {
-        // 초기값: Median Rank 회귀 기반 추정
-        const alphaInit = Math.exp(
-          failures.reduce((s, t) => s + Math.log(t), 0) / failures.length
-        );
+        const alphaInit = failures.length > 0 
+          ? Math.exp(failures.reduce((s, t) => s + Math.log(t), 0) / failures.length)
+          : 100;
         const betaInit = 1.5;
-        const negLL = D.Weibull.negLogLikelihoodLog(failures, censored);
-        const res = MathEngine.nelderMead(negLL, [Math.log(alphaInit), Math.log(betaInit)]);
-        const alpha = Math.exp(res.x[0]);
-        const beta  = Math.exp(res.x[1]);
-        const ll    = D.Weibull.logLikelihood(failures, censored, alpha, beta);
+        
+        let negLL, res, alpha, beta, ll;
+        if (isArbitrary) {
+          negLL = D.Weibull.negLogLikelihoodArbitrary(arbitraryData);
+          res = MathEngine.nelderMead(negLL, [Math.log(alphaInit), Math.log(betaInit)]);
+          alpha = Math.exp(res.x[0]);
+          beta  = Math.exp(res.x[1]);
+          ll    = -negLL([Math.log(alpha), Math.log(beta)]);
+        } else {
+          negLL = D.Weibull.negLogLikelihoodLog(failures, censored);
+          res = MathEngine.nelderMead(negLL, [Math.log(alphaInit), Math.log(betaInit)]);
+          alpha = Math.exp(res.x[0]);
+          beta  = Math.exp(res.x[1]);
+          ll    = D.Weibull.logLikelihood(failures, censored, alpha, beta);
+        }
+
         return {
           dist: 'weibull', params: { alpha, beta }, ll,
           mttf: D.Weibull.mttf(alpha, beta),
@@ -47,17 +58,27 @@ const ReliabilityAnalysis = (() => {
       }
 
       case 'lognormal': {
-        // 초기값: 로그 평균/표준편차
-        const logTs  = failures.map(t => Math.log(t));
-        const muInit = logTs.reduce((s, v) => s + v, 0) / logTs.length;
-        const sigmaInit = Math.sqrt(
-          logTs.reduce((s, v) => s + (v - muInit) ** 2, 0) / logTs.length
-        ) || 0.5;
-        const negLL = D.Lognormal.negLogLikelihoodLog(failures, censored);
-        const res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
-        const mu    = res.x[0];
-        const sigma = Math.exp(res.x[1]);
-        const ll    = D.Lognormal.logLikelihood(failures, censored, mu, sigma);
+        const logTs  = failures.map(t => Math.log(Math.max(t, 1e-10)));
+        const muInit = logTs.length > 0 ? logTs.reduce((s, v) => s + v, 0) / logTs.length : 4;
+        const sigmaInit = logTs.length > 1 
+          ? Math.sqrt(logTs.reduce((s, v) => s + (v - muInit) ** 2, 0) / logTs.length) || 0.5
+          : 0.5;
+
+        let negLL, res, mu, sigma, ll;
+        if (isArbitrary) {
+          negLL = D.Lognormal.negLogLikelihoodArbitrary(arbitraryData);
+          res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+          mu    = res.x[0];
+          sigma = Math.exp(res.x[1]);
+          ll    = -negLL([mu, Math.log(sigma)]);
+        } else {
+          negLL = D.Lognormal.negLogLikelihoodLog(failures, censored);
+          res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+          mu    = res.x[0];
+          sigma = Math.exp(res.x[1]);
+          ll    = D.Lognormal.logLikelihood(failures, censored, mu, sigma);
+        }
+
         return {
           dist: 'lognormal', params: { mu, sigma }, ll,
           mttf: D.Lognormal.mttf(mu, sigma),
@@ -70,15 +91,26 @@ const ReliabilityAnalysis = (() => {
       }
 
       case 'normal': {
-        const muInit    = failures.reduce((s, v) => s + v, 0) / failures.length;
-        const sigmaInit = Math.sqrt(
+        const muInit    = failures.length > 0 ? failures.reduce((s, v) => s + v, 0) / failures.length : 100;
+        const sigmaInit = failures.length > 1 ? Math.sqrt(
           failures.reduce((s, v) => s + (v - muInit) ** 2, 0) / failures.length
-        ) || muInit * 0.3;
-        const negLL = D.Normal.negLogLikelihoodLog(failures, censored);
-        const res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
-        const mu    = res.x[0];
-        const sigma = Math.exp(res.x[1]);
-        const ll    = D.Normal.logLikelihood(failures, censored, mu, sigma);
+        ) || muInit * 0.3 : muInit * 0.3;
+
+        let negLL, res, mu, sigma, ll;
+        if (isArbitrary) {
+          negLL = D.Normal.negLogLikelihoodArbitrary(arbitraryData);
+          res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+          mu    = res.x[0];
+          sigma = Math.exp(res.x[1]);
+          ll    = -negLL([mu, Math.log(sigma)]);
+        } else {
+          negLL = D.Normal.negLogLikelihoodLog(failures, censored);
+          res = MathEngine.nelderMead(negLL, [muInit, Math.log(sigmaInit)]);
+          mu    = res.x[0];
+          sigma = Math.exp(res.x[1]);
+          ll    = D.Normal.logLikelihood(failures, censored, mu, sigma);
+        }
+
         return {
           dist: 'normal', params: { mu, sigma }, ll,
           mttf: D.Normal.mttf(mu, sigma),
@@ -91,14 +123,22 @@ const ReliabilityAnalysis = (() => {
       }
 
       case 'exponential': {
-        // MLE 해석해: λ̂ = n_failures / (Σ failures + Σ censored)
         const nF = failures.length;
         const totalTime = [...failures, ...censored].reduce((s, t) => s + t, 0);
         const lambdaInit = nF > 0 ? nF / totalTime : 0.01;
-        const negLL = D.Exponential.negLogLikelihoodLog(failures, censored);
-        // Exponential은 해석해가 있으므로 직접 사용
-        const lambda = lambdaInit;
-        const ll = D.Exponential.logLikelihood(failures, censored, lambda);
+
+        let negLL, res, lambda, ll;
+        if (isArbitrary) {
+          negLL = D.Exponential.negLogLikelihoodArbitrary(arbitraryData);
+          res = MathEngine.nelderMead(negLL, [Math.log(lambdaInit)]);
+          lambda = Math.exp(res.x[0]);
+          ll    = -negLL([Math.log(lambda)]);
+        } else {
+          negLL = D.Exponential.negLogLikelihoodLog(failures, censored);
+          lambda = lambdaInit;
+          ll = D.Exponential.logLikelihood(failures, censored, lambda);
+        }
+
         return {
           dist: 'exponential', params: { lambda }, ll,
           mttf: D.Exponential.mttf(lambda),
@@ -107,6 +147,69 @@ const ReliabilityAnalysis = (() => {
           pdfFn: (t) => D.Exponential.pdf(t, lambda),
           hfFn:  (t) => D.Exponential.hf(t, lambda),
           qFn:   (p) => D.Exponential.quantile(p, lambda)
+        };
+      }
+
+      case 'weibull_mixture': {
+        const sortedFailures = failures.slice().sort((a,b) => a - b);
+        const halfIdx = Math.floor(sortedFailures.length / 2);
+        
+        const alpha1Init = sortedFailures.length > 0
+          ? (sortedFailures[Math.floor(halfIdx / 2)] || 10)
+          : 10;
+        const beta1Init = 1.0;
+        
+        const alpha2Init = sortedFailures.length > 0
+          ? (sortedFailures[Math.min(sortedFailures.length - 1, halfIdx + Math.floor(halfIdx / 2))] || 100)
+          : 100;
+        const beta2Init = 3.0;
+        
+        const initParams = [
+          0.0,
+          Math.log(alpha1Init),
+          Math.log(beta1Init),
+          Math.log(alpha2Init),
+          Math.log(beta2Init)
+        ];
+
+        let negLL, res, p, alpha1, beta1, alpha2, beta2, ll;
+        if (isArbitrary) {
+          negLL = D.WeibullMixture.negLogLikelihoodArbitrary(arbitraryData);
+          res = MathEngine.nelderMead(negLL, initParams);
+          p = 1 / (1 + Math.exp(-res.x[0]));
+          alpha1 = Math.exp(res.x[1]);
+          beta1  = Math.exp(res.x[2]);
+          alpha2 = Math.exp(res.x[3]);
+          beta2  = Math.exp(res.x[4]);
+          ll    = -negLL([res.x[0], res.x[1], res.x[2], res.x[3], res.x[4]]);
+        } else {
+          negLL = D.WeibullMixture.negLogLikelihoodLog(failures, censored);
+          res = MathEngine.nelderMead(negLL, initParams);
+          p = 1 / (1 + Math.exp(-res.x[0]));
+          alpha1 = Math.exp(res.x[1]);
+          beta1  = Math.exp(res.x[2]);
+          alpha2 = Math.exp(res.x[3]);
+          beta2  = Math.exp(res.x[4]);
+          ll    = D.WeibullMixture.logLikelihood(failures, censored, p, alpha1, beta1, alpha2, beta2);
+        }
+
+        return {
+          dist: 'weibull_mixture', params: { p, alpha1, beta1, alpha2, beta2 }, ll,
+          mttf: D.WeibullMixture.mttf(p, alpha1, beta1, alpha2, beta2),
+          cdfFn: (t) => D.WeibullMixture.cdf(t, p, alpha1, beta1, alpha2, beta2),
+          sfFn:  (t) => D.WeibullMixture.sf(t, p, alpha1, beta1, alpha2, beta2),
+          pdfFn: (t) => D.WeibullMixture.pdf(t, p, alpha1, beta1, alpha2, beta2),
+          hfFn:  (t) => D.WeibullMixture.hf(t, p, alpha1, beta1, alpha2, beta2),
+          qFn:   (fraction) => {
+            let low = 0, high = alpha1 * 10 + alpha2 * 10;
+            for (let i = 0; i < 50; i++) {
+              const mid = (low + high) / 2;
+              const val = D.WeibullMixture.cdf(mid, p, alpha1, beta1, alpha2, beta2);
+              if (val < fraction) low = mid;
+              else high = mid;
+            }
+            return (low + high) / 2;
+          }
         };
       }
 
@@ -121,7 +224,7 @@ const ReliabilityAnalysis = (() => {
   function computeFitMetrics(fitResult, nFailures, nTotal) {
     const { dist, ll, params, cdfFn } = fitResult;
     // 파라미터 수
-    const kMap = { weibull: 2, lognormal: 2, normal: 2, exponential: 1 };
+    const kMap = { weibull: 2, lognormal: 2, normal: 2, exponential: 1, weibull_mixture: 5 };
     const k = kMap[dist] || 2;
 
     const aic_c = Distributions.computeAICc(ll, k, nTotal);
@@ -140,17 +243,51 @@ const ReliabilityAnalysis = (() => {
   // ─────────────────────────────────────────────
   function analyze(dataRows, options = {}) {
     /**
-     * dataRows: [{ time, event }]    event: 'F' | 'C' | 'I'
+     * dataRows: [{ time, event, count, start, end, type }]
      * options: { distribution, confidence }
      * Returns: 분석 결과 객체
      */
     const confidence = options.confidence || 0.9;
     const distChoice = options.distribution || 'auto';
 
-    // 데이터 분리
-    const failures  = dataRows.filter(r => r.event === 'F').map(r => r.time).filter(t => t > 0);
-    const censored  = dataRows.filter(r => r.event === 'C').map(r => r.time).filter(t => t > 0);
-    const nTotal    = failures.length + censored.length;
+    // 임의 관측중단(Arbitrary Censoring) 형식의 데이터 배열 및 비모수 플롯용 임시 배열 생성
+    const arbitraryData = [];
+    let nTotal = 0;
+    let nFailures = 0;
+    const failures = [];
+    const censored = [];
+
+    dataRows.forEach(r => {
+      const count = Number(r.count) || 1;
+      nTotal += count;
+
+      if (r.type === 'interval') {
+        const start = Number(r.start);
+        const end = (r.end === '*' || r.end === Infinity || isNaN(Number(r.end)) || r.end === null) ? Infinity : Number(r.end);
+        if (start >= 0 && end > start) {
+          arbitraryData.push({ start, end, count });
+          if (end === Infinity) {
+            for (let i = 0; i < count; i++) censored.push(start);
+          } else {
+            nFailures += count;
+            const mid = (start + end) / 2;
+            for (let i = 0; i < count; i++) failures.push(mid);
+          }
+        }
+      } else {
+        const t = Number(r.time);
+        if (t > 0) {
+          if (r.event === 'F') {
+            nFailures += count;
+            arbitraryData.push({ start: t, end: t, count });
+            for (let i = 0; i < count; i++) failures.push(t);
+          } else {
+            arbitraryData.push({ start: t, end: Infinity, count });
+            for (let i = 0; i < count; i++) censored.push(t);
+          }
+        }
+      }
+    });
 
     // 유효성 검사
     if (nTotal < MIN_SAMPLE) {
@@ -161,14 +298,14 @@ const ReliabilityAnalysis = (() => {
     }
 
     // 모든 분포 적합 시도
-    const distNames = ['weibull', 'lognormal', 'normal', 'exponential'];
+    const distNames = ['weibull', 'lognormal', 'normal', 'exponential', 'weibull_mixture'];
     const fits = [];
 
     for (const dn of distNames) {
       try {
-        const fit = fitDistribution(dn, failures, censored);
+        const fit = fitDistribution(dn, failures, censored, arbitraryData);
         if (fit && isFinite(fit.ll)) {
-          const kMap = { weibull: 2, lognormal: 2, normal: 2, exponential: 1 };
+          const kMap = { weibull: 2, lognormal: 2, normal: 2, exponential: 1, weibull_mixture: 5 };
           const k = kMap[dn];
           fit.aic_c = Distributions.computeAICc(fit.ll, k, nTotal);
           fit.bic   = Distributions.computeBIC(fit.ll, k, nTotal);
@@ -213,28 +350,38 @@ const ReliabilityAnalysis = (() => {
     );
 
     // 함수값 계산
-    const pdfVals = xVals.map(t => selectedFit.pdfFn(t));
-    const cdfVals = xVals.map(t => selectedFit.cdfFn(t));
-    const sfVals  = xVals.map(t => selectedFit.sfFn(t));
-    const hfVals  = xVals.map(t => selectedFit.hfFn(t));
+    const pdfVals = xVals.map(t => {
+      const val = selectedFit.pdfFn(t);
+      return isFinite(val) ? val : 0;
+    });
+    const cdfVals = xVals.map(t => {
+      const val = selectedFit.cdfFn(t);
+      return isFinite(val) ? Math.max(0, Math.min(1, val)) : 1;
+    });
+    const sfVals  = xVals.map(t => {
+      const val = selectedFit.sfFn(t);
+      return isFinite(val) ? Math.max(0, Math.min(1, val)) : 0;
+    });
+    const hfVals  = xVals.map(t => {
+      const val = selectedFit.hfFn(t);
+      return isFinite(val) ? val : 0;
+    });
 
     // ─────────────────────────────────────────────
     // 신뢰구간 (Confidence Intervals)
     // ─────────────────────────────────────────────
     const zScore = Distributions.normalPPF((1 + confidence) / 2);
 
-    // Fisher CI 기반 모수 변동성 (공분산 행렬) 추출 (모든 분포 지원)
+    // Fisher CI 기반 모수 변동성 (공분산 행렬) 추출
     let fisherCI = null, contourData = null;
-    if (failures.length >= MIN_SAMPLE) {
-      fisherCI = Statistics.computeFisherCI(failures, censored, selectedFit.dist, selectedFit.params, confidence);
-      // Contour Plot — 항상 Weibull 기준 (Weibull++ 방식)
-      // 다른 분포를 선택해도 Contour는 Weibull 파라미터 공간에서 표시
+    if (failures.length >= MIN_SAMPLE && selectedFit.dist !== 'weibull_mixture') {
+      fisherCI = Statistics.computeFisherCI(arbitraryData, null, selectedFit.dist, selectedFit.params, confidence);
+      // Contour Plot — 항상 Weibull 기준
       if (failures.length >= 5) {
-        // Weibull 적합 결과 찾기 (이미 fits에 계산되어 있음)
         const wFit = fits.find(f => f.dist === 'weibull');
         if (wFit) {
           contourData = Statistics.computeContourPlot(
-            failures, censored, wFit.params.alpha, wFit.params.beta, confidence, 'weibull'
+            arbitraryData, null, wFit.params.alpha, wFit.params.beta, confidence, 'weibull'
           );
         }
       }
@@ -245,11 +392,17 @@ const ReliabilityAnalysis = (() => {
     if (fisherCI && fisherCI.covMatrix) {
       cdfCI = Statistics.computeTrueCDFCI(selectedFit.dist, selectedFit.params, fisherCI.covMatrix, xVals, zScore);
     } else {
-      // Fallback: Wald Logit
       cdfCI = Statistics.waldLogitCI(cdfVals, nTotal, zScore);
     }
 
-    const hfCI  = Statistics.hazardLogCI(hfVals, failures.length, zScore);
+    // Hazard Rate CI도 Delta Method로 계산
+    let hfCI;
+    if (fisherCI && fisherCI.covMatrix) {
+      hfCI = Statistics.computeHazardCI(selectedFit.dist, selectedFit.params, fisherCI.covMatrix, xVals, zScore);
+    } else {
+      hfCI = Statistics.hazardLogCI(hfVals, failures.length, zScore);
+    }
+
     const relLower = cdfCI.upper.map(v => 1 - v); // R(t) lower bound is 1 - F(t) upper bound
     const relUpper = cdfCI.lower.map(v => 1 - v);
 
@@ -425,7 +578,8 @@ const ReliabilityAnalysis = (() => {
           let lower = null, upper = null;
           if (dataSummary.nFailures >= 3) {
             const fi = Statistics.computeFisherCI(
-              dataSummary.failures, dataSummary.censored,
+              dataSummary.arbitraryData || dataSummary.failures,
+              dataSummary.arbitraryData ? null : dataSummary.censored,
               distribution, params, confidence
             );
             if (fi && fi.covMatrix) {
@@ -438,25 +592,58 @@ const ReliabilityAnalysis = (() => {
 
         if (q.type === 'Probability') {
           const p = cdfFn(q.value);
-          const pc = Math.max(Math.min(p, 1 - 1e-9), 1e-9);
-          const seP = Math.sqrt(pc * (1 - pc) / nTotal);
-          const w = Math.log(pc / (1 - pc));
-          const seW = seP / (pc * (1 - pc));
-          const lower = Math.exp(w - zScore * seW) / (1 + Math.exp(w - zScore * seW));
-          const upper = Math.exp(w + zScore * seW) / (1 + Math.exp(w + zScore * seW));
+          let lower = null, upper = null;
+          if (dataSummary.nFailures >= 3) {
+            const fi = Statistics.computeFisherCI(
+              dataSummary.arbitraryData || dataSummary.failures,
+              dataSummary.arbitraryData ? null : dataSummary.censored,
+              distribution, params, confidence
+            );
+            if (fi && fi.covMatrix) {
+              const ci = Statistics.computeTrueCDFCI(distribution, params, fi.covMatrix, [q.value], zScore);
+              if (ci) { lower = ci.lower[0]; upper = ci.upper[0]; }
+            }
+          }
+          if (lower === null || upper === null) {
+            const pc = Math.max(Math.min(p, 1 - 1e-9), 1e-9);
+            const seP = Math.sqrt(pc * (1 - pc) / nTotal);
+            const w = Math.log(pc / (1 - pc));
+            const seW = seP / (pc * (1 - pc));
+            lower = Math.exp(w - zScore * seW) / (1 + Math.exp(w - zScore * seW));
+            upper = Math.exp(w + zScore * seW) / (1 + Math.exp(w + zScore * seW));
+          }
           return { type: q.type, input: q.value, result: p, lower, upper };
         }
 
         if (q.type === 'Reliability') {
           const p = 1 - cdfFn(q.value);
           const pf = 1 - p;
-          const pfc = Math.max(Math.min(pf, 1 - 1e-9), 1e-9);
-          const seP = Math.sqrt(pfc * (1 - pfc) / nTotal);
-          const w = Math.log(pfc / (1 - pfc));
-          const seW = seP / (pfc * (1 - pfc));
-          const fLower = Math.exp(w - zScore * seW) / (1 + Math.exp(w - zScore * seW));
-          const fUpper = Math.exp(w + zScore * seW) / (1 + Math.exp(w + zScore * seW));
-          return { type: q.type, input: q.value, result: p, lower: 1 - fUpper, upper: 1 - fLower };
+          let lower = null, upper = null;
+          if (dataSummary.nFailures >= 3) {
+            const fi = Statistics.computeFisherCI(
+              dataSummary.arbitraryData || dataSummary.failures,
+              dataSummary.arbitraryData ? null : dataSummary.censored,
+              distribution, params, confidence
+            );
+            if (fi && fi.covMatrix) {
+              const ci = Statistics.computeTrueCDFCI(distribution, params, fi.covMatrix, [q.value], zScore);
+              if (ci) {
+                lower = 1 - ci.upper[0];
+                upper = 1 - ci.lower[0];
+              }
+            }
+          }
+          if (lower === null || upper === null) {
+            const pc = Math.max(Math.min(pf, 1 - 1e-9), 1e-9);
+            const seP = Math.sqrt(pc * (1 - pc) / nTotal);
+            const w = Math.log(pc / (1 - pc));
+            const seW = seP / (pc * (1 - pc));
+            const fLower = Math.exp(w - zScore * seW) / (1 + Math.exp(w - zScore * seW));
+            const fUpper = Math.exp(w + zScore * seW) / (1 + Math.exp(w + zScore * seW));
+            lower = 1 - fUpper;
+            upper = 1 - fLower;
+          }
+          return { type: q.type, input: q.value, result: p, lower, upper };
         }
       } catch (e) {
         console.warn(`커스텀 계산 실패 (${q.type}=${q.value}):`, e);
