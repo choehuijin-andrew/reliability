@@ -120,6 +120,8 @@ body[data-theme="black"] {
 html {
   scrollbar-gutter: stable;
   scroll-behavior: smooth;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -131,6 +133,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
   padding-bottom: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 @media (max-width: 768px) {
@@ -142,10 +146,11 @@ body {
   max-width: var(--container-max);
   margin: 0 auto;
   padding: var(--container-pad);
+  max-width: 100%;
 }
 
 @media (max-width: 768px) {
-  .container { padding: 0.75rem; }
+  .container { padding: 0.5rem; }
 }
 
 /* ═══ Header ═══ */
@@ -214,12 +219,23 @@ body {
 .grid-cols-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: var(--gap-lg); }
 
 @media (max-width: 768px) {
-  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr; }
   .grid-2-mobile { grid-template-columns: 1fr 1fr; }
+  .glass-card { padding: 0.75rem; }
 }
 
 @media (max-width: 1023px) {
   .grid-cols-1-2 { grid-template-columns: 1fr; }
+}
+
+/* Grid 아이템이 내부 콘텐츠(KaTeX, Table 등) 크기로 인해 강제로 늘어나는 것을 방지 */
+.grid-cols-1-2 > *,
+.layout-split > *,
+.grid-2 > *,
+.grid-3 > *,
+.grid-4 > * {
+  min-width: 0;
 }
 
 /* ═══ Glass Card ═══ */
@@ -353,7 +369,16 @@ body {
   border-radius: 8px;
 }
 
-/* ═══ Tab Navigation ═══ */
+@media (max-width: 768px) {
+  .btn-sm, .btn-icon {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 .tab-nav {
   display: flex;
   gap: 0.25rem;
@@ -363,6 +388,8 @@ body {
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-nav::-webkit-scrollbar { display: none; }
@@ -851,10 +878,11 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--card-radius-sm);
-  padding: 1.25rem;
+  padding: 1rem;
   margin-top: 1rem;
-  overflow-x: auto;
-  max-width: 100%;
+  overflow-x: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 .formula-section h4 {
@@ -868,18 +896,23 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   font-size: 0.88rem;
   color: var(--text-secondary);
   line-height: 1.8;
-  overflow-x: auto;
-  max-width: 100%;
+  overflow-x: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 .formula-step .katex {
-  font-size: 1.1em;
+  font-size: 1.05em;
 }
 
 .katex-display {
   overflow-x: auto !important;
   overflow-y: hidden !important;
   max-width: 100% !important;
+  width: 100% !important;
+  display: block !important;
+  padding: 0.5rem 0;
+  box-sizing: border-box;
 }
 
 .formula-highlight {
@@ -933,6 +966,13 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   gap: 0.25rem;
   margin-bottom: 1.25rem;
   border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+}
+.sub-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .sub-tab-btn {
@@ -947,6 +987,8 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   transition: all var(--transition);
   font-family: var(--font-sans);
   margin-bottom: -1px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .sub-tab-btn:hover {
@@ -1016,3 +1058,115 @@ select {
   padding-bottom: 4px !important;
   line-height: 1.2 !important;
 }
+
+/* ── Handsontable 및 테이블 모바일 뷰포트 초과 방어 ── */
+.handsontable {
+  max-width: 100% !important;
+}
+.wtHolder {
+  max-width: 100% !important;
+}
+.table-wrapper {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+#analysis-grid,
+#warranty-hot-grid,
+#degrad-grid {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+/* ── 가속수명 표준 가이드 모달 테이블 반응형 ── */
+.guide-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+@media (min-width: 769px) {
+  .guide-table {
+    min-width: 850px;
+  }
+}
+@media (max-width: 768px) {
+  .guide-table {
+    min-width: 550px;
+  }
+}
+
+/* ── 차트 컨트롤러 반응형 스타일 ── */
+.chart-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  font-size: 0.78rem;
+}
+.chart-controls-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.chart-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.chart-controls .scale-input {
+  width: 60px;
+  height: 28px;
+  padding: 0 0.25rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.chart-controls button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+}
+@media (max-width: 768px) {
+  .chart-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .chart-controls-label {
+    text-align: center;
+  }
+  .chart-controls .chart-controls-row {
+    flex-direction: column;
+    gap: 0.5rem !important;
+  }
+  .chart-controls-group {
+    width: 100%;
+    justify-content: center;
+  }
+  .chart-controls .scale-input {
+    width: 90px;
+    height: 38px;
+    font-size: 0.85rem;
+  }
+  .chart-controls button {
+    height: 44px;
+    min-height: 44px;
+    flex: 1;
+    font-size: 0.8rem;
+  }
+}
+
+

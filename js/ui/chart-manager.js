@@ -554,23 +554,27 @@ function attachControls(canvas, canvasId) {
     }
 
     const controlsHtml = `
-        <div class="chart-controls" data-chart-id="${canvasId}" style="display: flex; gap: 0.5rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; padding: 0.35rem 0.5rem; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.78rem;">
-            <span style="font-weight: 500; color: var(--text-secondary);">축 범위 조정:</span>
-            <div style="display: flex; align-items: center; gap: 0.25rem;">
-                <span>X축:</span>
-                <input type="number" class="scale-input x-min" placeholder="최소" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
-                <span>~</span>
-                <input type="number" class="scale-input x-max" placeholder="최대" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+        <div class="chart-controls" data-chart-id="${canvasId}">
+            <span class="chart-controls-label">축 범위 조정:</span>
+            <div class="chart-controls-row" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; align-items: center;">
+                <div class="chart-controls-group">
+                    <span>X축:</span>
+                    <input type="number" class="scale-input x-min" placeholder="최소" />
+                    <span>~</span>
+                    <input type="number" class="scale-input x-max" placeholder="최대" />
+                </div>
+                <div class="chart-controls-group">
+                    <span>Y축:</span>
+                    <input type="number" class="scale-input y-min" placeholder="최소" />
+                    <span>~</span>
+                    <input type="number" class="scale-input y-max" placeholder="최대" />
+                </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;">
-                <span>Y축:</span>
-                <input type="number" class="scale-input y-min" placeholder="최소" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
-                <span>~</span>
-                <input type="number" class="scale-input y-max" placeholder="최대" style="width: 60px; height: 24px; padding: 0 0.25rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);" />
+            <div class="chart-controls-row" style="display: flex; gap: 0.35rem; justify-content: center; align-items: center;">
+                <button class="btn btn-secondary btn-apply-scale">적용</button>
+                <button class="btn btn-secondary btn-auto-scale">자동</button>
+                <button class="btn btn-secondary btn-reset-zoom">초기화</button>
             </div>
-            <button class="btn btn-secondary btn-apply-scale" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">적용</button>
-            <button class="btn btn-secondary btn-auto-scale" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">자동</button>
-            <button class="btn btn-secondary btn-reset-zoom" style="min-height: 24px; height: 24px; padding: 0 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1; cursor: pointer; border: 1px solid var(--border-color);">초기화</button>
         </div>
     `;
     container.insertAdjacentHTML('afterend', controlsHtml);

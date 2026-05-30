@@ -1303,7 +1303,8 @@ function renderAdvancedTab() {
                 <label style="font-size:0.85rem;color:var(--text-secondary)">Contour Plot 전용 신뢰수준:</label>
                 <input type="number" id="contour-ci-level" value="${conf}" min="50" max="99" step="1"
                     style="width:65px;padding:3px 8px;font-size:0.85rem;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary)"
-                    onchange="updateContourCI(this.value)">
+                    onchange="updateContourCI(this.value)"
+                    onkeydown="if(event.key==='Enter'){updateContourCI(this.value); this.blur(); event.preventDefault();}">
                 <span style="font-size:0.85rem;color:var(--text-muted)">%</span>
             </div>
             <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap" id="contour-group-toggles">
@@ -2347,7 +2348,7 @@ function renderAQLTab() {
     return `
     <div style="display:flex; gap:1.5rem; margin-bottom:1.5rem; flex-wrap:wrap">
         <!-- Input section -->
-        <div class="glass-card" style="flex:1; min-width:300px">
+        <div class="glass-card" style="flex:1; min-width:280px">
             <h3 class="section-title">AQL 파라미터</h3>
             <div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem">
                 <button class="btn btn-sm btn-secondary" onclick="switchPlanningSubTab('aql')">기본값 복원</button>
@@ -2385,7 +2386,7 @@ function renderAQLTab() {
         </div>
 
         <!-- Result Overview section -->
-        <div class="glass-card" style="flex:1.5; min-width:300px; display:flex; flex-direction:column; justify-content:center">
+        <div class="glass-card" style="flex:1.5; min-width:280px; display:flex; flex-direction:column; justify-content:center">
             <h3 class="section-title">결과 요약</h3>
             <div id="aql-top-result">
                 <div style="font-size:0.9rem; color:var(--text-muted);">좌측에서 파라미터 변경 시 결과가 표시됩니다.</div>
@@ -4050,9 +4051,10 @@ function initWarrantyGrid() {
         width: '100%',
         licenseKey: 'non-commercial-and-evaluation',
         stretchH: 'all',
-        rowHeaderWidth: 100,
+        rowHeaderWidth: 80,
         colWidths: function(index) {
-            return index === 0 ? 170 : 80;
+            const isMobile = window.innerWidth <= 768;
+            return index === 0 ? (isMobile ? 110 : 170) : (isMobile ? 55 : 80);
         },
         contextMenu: ['undo', 'redo'],
         // 대각선 회색 비활성 처리
@@ -4179,6 +4181,8 @@ function runWarrantyPreprocess() {
 
             const result = WarrantyAnalysis.preprocessNevada(sales, matrixRows, wm);
             warrantyState.preprocessed = result;
+            warrantyState.sales = sales;
+            warrantyState.matrixRows = matrixRows;
             warrantyState.warrantyMonths = wm;
             
             if (result.failures.length < 3) { 
@@ -4256,11 +4260,150 @@ function runWarrantyPreprocess() {
 function showWarrantyError(msg) { const el = document.getElementById('warranty-error'); if (el) { el.style.display = 'block'; el.innerHTML = `<div class="info-box" style="border-color:var(--danger);color:var(--danger);margin-bottom:1rem">⚠️ ${msg}</div>`; } }
 function hideWarrantyError() { const el = document.getElementById('warranty-error'); if (el) el.style.display = 'none'; }
 
+function toggleAdvancedAccordion(id) {
+    const el = document.getElementById(id);
+    const icon = document.getElementById(id + '-icon');
+    if (!el) return;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (icon) icon.innerHTML = '<i class="fas fa-chevron-up"></i>';
+        if (id === 'warranty-seasonality-item') {
+            setTimeout(drawWarrantyDistributionCharts, 50);
+        }
+    } else {
+        el.style.display = 'none';
+        if (icon) icon.innerHTML = '<i class="fas fa-chevron-down"></i>';
+    }
+}
+
+function renderWarrantySeasonalityHTML(seasonality) {
+    if (!seasonality || !seasonality.seasonalIndices) return '';
+    return `
+    <div class="info-box" style="border-color:var(--purple);color:var(--purple);margin-bottom:1rem;background:rgba(167,139,250,0.05);padding:0.75rem;border-radius:6px;border-left:4px solid">
+        <div style="font-weight:600;margin-bottom:0.2rem">계절성 지수 분석 요약</div>
+        <div style="font-size:0.82rem;color:var(--text-primary)">
+            ${seasonality.description}
+        </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:1.5rem;align-items:center;flex-wrap:wrap" class="grid-2-mobile">
+        <div class="chart-container" style="height:280px;position:relative">
+            <canvas id="warranty-seasonality-chart"></canvas>
+        </div>
+        <div class="table-wrapper" style="border:1px solid var(--border-color);border-radius:6px;max-height:280px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+                <thead>
+                    <tr style="background:var(--bg-secondary);position:sticky;top:0;z-index:1">
+                        <th class="table-header" style="padding:0.4rem">달력 월</th>
+                        <th class="table-header" style="padding:0.4rem;text-align:right">고장 지수</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${seasonality.seasonalIndices.map((si, m) => {
+                        const mrr = seasonality.mrrByMonth[m];
+                        const isHigh = si > 1.15;
+                        const boldStyle = isHigh ? 'font-weight:bold;color:var(--danger)' : '';
+                        return `
+                        <tr>
+                            <td class="table-cell" style="padding:0.4rem;text-align:center;${boldStyle}">${m + 1}월</td>
+                            <td class="table-cell" style="padding:0.4rem;text-align:right;${boldStyle}">${si.toFixed(2)}x (${mrr.toFixed(3)}%)</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+}
+
+function renderWarrantyHeatmapHTML(heatmapInfo) {
+    if (!heatmapInfo || !heatmapInfo.heatmapData) return '';
+    const { heatmapData, maxServiceAge } = heatmapInfo;
+    
+    const headerCols = Array.from({length: maxServiceAge}, (_, i) => `<th class="table-header" style="text-align:center;font-size:0.75rem;padding:0.4rem 0.25rem;min-width:45px">${i + 1}기</th>`).join('');
+    
+    const rows = heatmapData.map(c => {
+        const cells = c.rates.map(r => {
+            if (!r.isActive) {
+                return `<td class="table-cell" style="background:rgba(255,255,255,0.02);color:var(--text-muted);text-align:center;font-size:0.72rem">-</td>`;
+            }
+            const val = r.rate !== null ? `${r.rate.toFixed(2)}%` : '0.00%';
+            const opacity = Math.min(0.85, (r.rate || 0) / 10);
+            const bg = `rgba(239, 68, 68, ${opacity})`;
+            const color = opacity > 0.4 ? '#ffffff' : 'var(--text-primary)';
+            const borderStyle = r.anomaly ? 'border: 2px solid var(--danger); font-weight: bold; position: relative;' : '';
+            const anomalyIndicator = r.anomaly ? '<span style="color:var(--danger);font-size:0.65rem;display:block;line-height:1;margin-top:1px">⚠️이상</span>' : '';
+            
+            return `<td class="table-cell" style="background:${bg};color:${color};text-align:center;font-size:0.72rem;padding:0.5rem 0.25rem;${borderStyle}" title="${c.cohortName} / ${r.age}기 경과\n누적고장수: ${r.failures}대\n누적고장율: ${r.rate.toFixed(4)}%">
+                ${val}
+                ${anomalyIndicator}
+            </td>`;
+        }).join('');
+        
+        return `
+        <tr>
+            <td class="table-cell" style="font-weight:600;white-space:nowrap;font-size:0.78rem;background:var(--bg-tertiary);position:sticky;left:0;z-index:2">${c.cohortName}</td>
+            <td class="table-cell" style="text-align:center;font-size:0.75rem;background:var(--bg-tertiary)">${c.sales.toLocaleString()}</td>
+            ${cells}
+        </tr>`;
+    }).join('');
+
+    const anomalies = [];
+    heatmapData.forEach(c => {
+        const hasAnomaly = c.rates.some(r => r.anomaly);
+        if (hasAnomaly) {
+            anomalies.push(c.cohortName);
+        }
+    });
+
+    let alertHTML = '';
+    if (anomalies.length > 0) {
+        alertHTML = `
+        <div class="info-box" style="border-color:var(--danger);color:var(--danger);margin-bottom:1rem;background:rgba(239,68,68,0.05);padding:0.75rem;border-radius:6px;border-left:4px solid">
+            <div style="font-weight:600;margin-bottom:0.2rem">배치 이상 고장 경고 (CFR > 평균 + 2σ)</div>
+            <div style="font-size:0.82rem;color:var(--text-primary)">
+                출하 배치 중 <strong>${anomalies.join(', ')}</strong>에서 다른 배치 대비 고장율이 유의미하게 높게 관찰되었습니다. 생산 품질 로트 추적 조사를 권장합니다.
+            </div>
+        </div>`;
+    } else {
+        alertHTML = `
+        <div class="info-box" style="border-color:var(--success);color:var(--success);margin-bottom:1rem;background:rgba(34,197,94,0.05);padding:0.75rem;border-radius:6px;border-left:4px solid">
+            <div style="font-weight:600;margin-bottom:0.2rem">배치 품질 상태 정상</div>
+            <div style="font-size:0.82rem;color:var(--text-primary)">
+                모든 출하 배치의 경과별 누적 고장률이 정상 편차(±2σ) 내에서 제어되고 있습니다.
+            </div>
+        </div>`;
+    }
+
+    return `
+    ${alertHTML}
+    <div class="table-wrapper" style="overflow-x:auto;max-height:400px;overflow-y:auto;border:1px solid var(--border-color);border-radius:6px">
+        <table style="width:100%;border-collapse:collapse;min-width:700px">
+            <thead>
+                <tr style="position:sticky;top:0;z-index:3;background:var(--bg-secondary)">
+                    <th class="table-header" style="position:sticky;left:0;z-index:4;background:var(--bg-secondary);min-width:80px">출하 배치</th>
+                    <th class="table-header" style="min-width:80px">출하량</th>
+                    ${headerCols}
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    </div>
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.4rem;text-align:right">
+        * 셀 배경색의 붉은 톤이 짙을수록 누적 고장률이 높음을 나타냅니다. (⚠️이상: 동기간 타 배치 대비 2σ 초과 고장률 발생)
+    </div>`;
+}
+
 function renderWarrantyFitted() {
     const s = warrantyState.preprocessed?.summary;
     const fits = warrantyState.fits;
     const dc = { weibull:'#38bdf8', lognormal:'#f59e0b', normal:'#a78bfa', exponential:'#22c55e' };
     const sel = warrantyState.selectedFit;
+
+    // 계절성 분석 및 배치 히트맵 연산
+    const seasonality = WarrantyAnalysis.analyzeSeasonality(warrantyState.sales || [], warrantyState.matrixRows || []);
+    warrantyState.seasonality = seasonality; // 보정 예측에서 사용할 수 있도록 저장
+    const heatmapInfo = WarrantyAnalysis.generateBatchHeatmap(warrantyState.sales || [], warrantyState.matrixRows || []);
 
     // Weibull 형상모수 해석 텍스트
     let betaInterpretationHTML = '';
@@ -4358,6 +4501,31 @@ function renderWarrantyFitted() {
         </div>
     </div>
 
+    <!-- ═══ 계절성 & 배치 비교 고급 분석 ═══ -->
+    <div class="glass-card" style="margin-bottom:1rem">
+        <div class="accordion" id="warranty-advanced-accordion">
+            <div class="accordion-item" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                <div class="accordion-header" onclick="toggleAdvancedAccordion('warranty-seasonality-item')" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding: 0.5rem 0;">
+                    <h4 style="color:var(--text-primary);margin:0;font-size:0.92rem;font-weight:600;"><i class="fas fa-cloud-sun" style="margin-right:0.5rem;color:var(--purple)"></i>1. 계절성(Seasonality) 분석</h4>
+                    <span id="warranty-seasonality-item-icon" style="color:var(--text-secondary);font-size:0.8rem"><i class="fas fa-chevron-down"></i></span>
+                </div>
+                <div id="warranty-seasonality-item" class="accordion-body" style="display:none; padding-top:0.75rem">
+                    ${renderWarrantySeasonalityHTML(seasonality)}
+                </div>
+            </div>
+            
+            <div class="accordion-item" style="padding-bottom: 0.25rem;">
+                <div class="accordion-header" onclick="toggleAdvancedAccordion('warranty-heatmap-item')" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding: 0.5rem 0;">
+                    <h4 style="color:var(--text-primary);margin:0;font-size:0.92rem;font-weight:600;"><i class="fas fa-th" style="margin-right:0.5rem;color:var(--warning)"></i>2. 배치(Cohort) 비교 히트맵</h4>
+                    <span id="warranty-heatmap-item-icon" style="color:var(--text-secondary);font-size:0.8rem"><i class="fas fa-chevron-down"></i></span>
+                </div>
+                <div id="warranty-heatmap-item" class="accordion-body" style="display:none; padding-top:0.75rem">
+                    ${renderWarrantyHeatmapHTML(heatmapInfo)}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div style="display:flex;gap:0.75rem"><button class="btn btn-secondary" onclick="warrantyGoStep('input')">← 데이터 재입력</button><button class="btn btn-primary" style="flex:1" onclick="warrantyGoStep('forecast')" ${!sel?'disabled':''}>예측 시뮬레이션 →</button></div>`;
 }
 
@@ -4442,6 +4610,10 @@ function renderWarrantyForecast() {
             <div>${HelpTooltip.labelWithHelp('예측 기간 (개월)', '')}<input type="number" id="fc-months" class="input-field" value="12" min="1" max="120"></div>
             <div>${HelpTooltip.labelWithHelp('단위 고장 비용 ($)', '')}<input type="number" id="fc-cost" class="input-field" value="500" min="0"></div>
             <div>${HelpTooltip.labelWithHelp('향후 월별 생산 수량 (쉼표)', '')}<input type="text" id="fc-future" class="input-field" value="1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000"></div>
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.15rem;margin-bottom:0.4rem">
+                <input type="checkbox" id="fc-use-seasonality" style="width:auto;height:auto;cursor:pointer" ${warrantyState.useSeasonality ? 'checked' : ''} />
+                <label for="fc-use-seasonality" style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);cursor:pointer">계절성 변동 보정 적용 (Seasonality Correction)</label>
+            </div>
             ${sel ? `<div class="info-box" style="border-color:rgba(167,139,250,0.3);color:var(--purple);font-size:0.82rem">적합: <strong>${sel.displayName}</strong> — ${Object.entries(sel.params).slice(0,3).map(([k,v])=>`${k}=${Number(v).toFixed(3)}`).join(', ')}</div>` : ''}
             <button class="btn btn-primary" style="width:100%;min-height:44px" onclick="runWarrantyForecast()">▶ 예측 실행</button>
         </div>
@@ -4459,7 +4631,15 @@ function runWarrantyForecast() {
         const cost = parseFloat(document.getElementById('fc-cost').value) || 0;
         const future = WarrantyAnalysis.parseNumberLine(document.getElementById('fc-future').value);
         const wm = warrantyState.warrantyMonths || null;
- 
+        
+        const useSeasonality = document.getElementById('fc-use-seasonality')?.checked ?? false;
+        warrantyState.useSeasonality = useSeasonality;
+        
+        let seasonalIndices = null;
+        if (useSeasonality && warrantyState.seasonality) {
+            seasonalIndices = warrantyState.seasonality.seasonalIndices;
+        }
+
         // 기존 설치 베이스의 평균 서비스 연령(개월) 추정 (Fallback용)
         let averageAge = null;
         if (warrantyState.preprocessed) {
@@ -4471,11 +4651,15 @@ function runWarrantyForecast() {
                 averageAge = totalT / totalN;
             }
         }
- 
+
         const cohorts = warrantyState.preprocessed?.cohorts || null;
         const confidenceVal = (warrantyState.confidence || 90) / 100;
         
-        warrantyState.forecastResult = WarrantyAnalysis.forecastWithCI(sel.name, sel, existing, future, months, cost, confidenceVal, wm, averageAge, cohorts);
+        warrantyState.forecastResult = WarrantyAnalysis.forecastWithCI(sel.name, sel, existing, future, months, cost, confidenceVal, wm, averageAge, cohorts, seasonalIndices);
+        
+        // 보증 기간 민감도 분석(A-5) 연산 및 저장
+        warrantyState.sensitivityResult = WarrantyAnalysis.analyzeWarrantySensitivity(sel.name, sel.params, existing, future, months, cost, averageAge, cohorts);
+
         const el = document.getElementById('warranty-forecast-result');
         if (el) {
             el.innerHTML = renderWarrantyForecastResult();
@@ -4556,6 +4740,41 @@ function renderWarrantyForecastResult() {
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <!-- ═══ 보증 기간 민감도 분석 ═══ -->
+    <div class="glass-card" style="margin-top:1rem; margin-bottom:1rem">
+        <h3 class="section-title"><i class="fas fa-sliders-h" style="margin-right:0.5rem;color:var(--accent-color)"></i>보증 기간 민감도 분석 (Warranty Period Sensitivity)</h3>
+        <div class="info-box" style="border-color:var(--accent-color);color:var(--accent-color);margin-bottom:1rem;background:rgba(56,189,248,0.05);padding:0.75rem;border-radius:6px;border-left:4px solid">
+            <div style="font-weight:600;margin-bottom:0.2rem">보증 기간별 영향 비교</div>
+            <div style="font-size:0.82rem;color:var(--text-primary)">
+                제품의 보증 기간을 6개월에서 48개월까지 조정했을 때 예상되는 총 누적 고장 수 및 보증 서비스 비용의 민감도를 분석합니다. 보증 최적화 결정에 참고할 수 있습니다.
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:1.5rem;align-items:center;flex-wrap:wrap" class="grid-2-mobile">
+            <div class="chart-container" style="height:260px;position:relative">
+                <canvas id="warranty-sensitivity-chart"></canvas>
+            </div>
+            <div class="table-wrapper" style="border:1px solid var(--border-color);border-radius:6px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+                    <thead>
+                        <tr style="background:var(--bg-secondary)">
+                            <th class="table-header" style="padding:0.5rem">보증 기간</th>
+                            <th class="table-header" style="padding:0.5rem;text-align:right">예상 고장 (대)</th>
+                            <th class="table-header" style="padding:0.5rem;text-align:right">보증 비용 ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${(warrantyState.sensitivityResult || []).map(r => `
+                        <tr>
+                            <td class="table-cell" style="padding:0.5rem;text-align:center;font-weight:600">${r.period}개월</td>
+                            <td class="table-cell" style="padding:0.5rem;text-align:right;color:var(--danger)">${r.totalFailures.toLocaleString()}대</td>
+                            <td class="table-cell" style="padding:0.5rem;text-align:right;color:var(--warning)">$${r.totalCost.toLocaleString()}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -4571,7 +4790,7 @@ function drawWarrantyCharts() {
             type: 'bar',
             data: fr.monthly.map(r => r.failures),
             backgroundColor: 'rgba(239, 68, 68, 0.75)',
-            borderColor: 'var(--danger)',
+            borderColor: '#ef4444',
             borderWidth: 1.5,
             borderRadius: 3,
             maxBarThickness: 32,
@@ -4626,7 +4845,7 @@ function drawWarrantyCharts() {
         {
             label: '누적 고장',
             data: fr.monthly.map(r => r.cumulativeFailures),
-            borderColor: 'var(--danger)',
+            borderColor: '#ef4444',
             borderWidth: 2.5,
             tension: 0.3,
             pointRadius: 2,
@@ -4662,7 +4881,7 @@ function drawWarrantyCharts() {
         {
             label: '누적 비용($)',
             data: fr.monthly.map(r => r.cumulativeCost),
-            borderColor: 'var(--warning)',
+            borderColor: '#f59e0b',
             borderWidth: 2,
             borderDash: [4, 2],
             tension: 0.3,
@@ -4732,6 +4951,64 @@ function drawWarrantyCharts() {
             }
         }
     });
+
+    // 3) 보증 기간 민감도 차트 (Grouped Bar Chart)
+    const sensCanvas = document.getElementById('warranty-sensitivity-chart');
+    if (sensCanvas && warrantyState.sensitivityResult) {
+        const sensLabels = warrantyState.sensitivityResult.map(r => `${r.period}개월`);
+        const failuresData = warrantyState.sensitivityResult.map(r => r.totalFailures);
+        const costData = warrantyState.sensitivityResult.map(r => r.totalCost);
+
+        ChartManager.createOrUpdate('warranty-sensitivity-chart', {
+            type: 'bar',
+            data: {
+                labels: sensLabels,
+                datasets: [
+                    {
+                        label: '예상 고장 수 (대)',
+                        data: failuresData,
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                        borderColor: '#ef4444',
+                        borderWidth: 1.5,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: '예상 보증 비용 ($)',
+                        data: costData,
+                        backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                        borderColor: '#f59e0b',
+                        borderWidth: 1.5,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'top' }
+                },
+                scales: {
+                    x: { title: { display: true, text: '보증 기간' } },
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: '고장 수 (대)' },
+                        ticks: { callback: v => v.toLocaleString() },
+                        beginAtZero: true
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: '보증 비용 ($)' },
+                        grid: { drawOnChartArea: false },
+                        ticks: { callback: v => '$' + v.toLocaleString() },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
 }
 
 function drawWarrantyDistributionCharts() {
@@ -4886,6 +5163,47 @@ function drawWarrantyDistributionCharts() {
         sfDsets.push({ label: '경험적 R(t)', data: km.times.map((t, i) => ({ x: t, y: 1 - km.fValues[i] })), borderColor: '#fff', backgroundColor: '#fff', showLine: false, pointRadius: 4 });
     }
     ChartManager.createOrUpdate('warranty-sf-chart', { type: 'line', data: { datasets: sfDsets }, options: makeOpts('R(t)') });
+
+    // ── 계절성 Radar 차트 ──
+    const seasonalityCanvas = document.getElementById('warranty-seasonality-chart');
+    if (seasonalityCanvas && warrantyState.seasonality) {
+        const labels = Array.from({length: 12}, (_, i) => `${i + 1}월`);
+        const dataset = {
+            label: '계절 지수 (Seasonal Index)',
+            data: warrantyState.seasonality.seasonalIndices,
+            backgroundColor: 'rgba(56, 189, 248, 0.2)',
+            borderColor: '#38bdf8',
+            pointBackgroundColor: '#38bdf8',
+            pointBorderColor: '#fff',
+            pointHoverBackgroundColor: '#fff',
+            pointHoverBorderColor: '#38bdf8',
+            borderWidth: 2
+        };
+        ChartManager.createOrUpdate('warranty-seasonality-chart', {
+            type: 'radar',
+            data: {
+                labels,
+                datasets: [dataset]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(255, 255, 255, 0.1)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        pointLabels: { color: '#94a3b8', font: { size: 10 } },
+                        ticks: { color: '#64748b', backdropColor: 'transparent', font: { size: 9 } },
+                        suggestedMin: 0.5,
+                        suggestedMax: 1.5
+                    }
+                }
+            }
+        });
+    }
 }
 
 
@@ -5095,6 +5413,58 @@ function fillDegradSample() {
     }
 }
 
+function selectDegradModel(modelCode) {
+    const selEl = document.getElementById('degrad-model-sel');
+    if (selEl) {
+        selEl.value = modelCode;
+        runDegradAnalysis();
+    }
+}
+
+function getModelFormulaLaTeX(model, a, b, extra) {
+    const aStr = a.toFixed(4);
+    const bSign = b >= 0 ? '+' : '-';
+    const bAbsStr = Math.abs(b).toFixed(6);
+    
+    let formulaGen = '';
+    let formulaVal = '';
+    
+    switch (model) {
+        case 'linear':
+            formulaGen = 'D(t) = a + b \\cdot t';
+            formulaVal = `D(t) = ${aStr} ${bSign} ${bAbsStr} \\cdot t`;
+            break;
+        case 'sqrt':
+            formulaGen = 'D(t) = a + b \\cdot \\sqrt{t}';
+            formulaVal = `D(t) = ${aStr} ${bSign} ${bAbsStr} \\cdot \\sqrt{t}`;
+            break;
+        case 'log':
+            formulaGen = 'D(t) = a + b \\cdot \\ln(t)';
+            formulaVal = `D(t) = ${aStr} ${bSign} ${bAbsStr} \\cdot \\ln(t)`;
+            break;
+        case 'power':
+            const pStr = extra !== undefined ? extra.toFixed(2) : 'p';
+            formulaGen = 'D(t) = a + b \\cdot t^p';
+            formulaVal = `D(t) = ${aStr} ${bSign} ${bAbsStr} \\cdot t^{${pStr}}`;
+            break;
+        case 'exponential':
+            formulaGen = 'D(t) = \\exp(a + b \\cdot t)';
+            formulaVal = `D(t) = \\exp(${aStr} ${bSign} ${bAbsStr} \\cdot t)`;
+            break;
+        case 'lloyd':
+            formulaGen = 'D(t) = a + \\frac{b}{t}';
+            formulaVal = `D(t) = ${aStr} ${bSign} \\frac{${bAbsStr}}{t}`;
+            break;
+        case 'gompertz':
+            const cStr = extra !== undefined ? extra.toFixed(2) : 'c';
+            formulaGen = 'D(t) = \\exp(a + b \\cdot c^t)';
+            formulaVal = `D(t) = \\exp(${aStr} ${bSign} ${bAbsStr} \\cdot ${cStr}^t)`;
+            break;
+    }
+    
+    return `${formulaGen} \\quad \\rightarrow \\quad ${formulaVal}`;
+}
+
 function runDegradAnalysis() {
     const hotData = _degradHot ? _degradHot.getData() : [];
     const threshold = parseFloat(document.getElementById('degrad-threshold').value);
@@ -5114,7 +5484,14 @@ function runDegradAnalysis() {
         degradState.result = DegradationAnalysis.analyze(data, threshold, direction, modelSel, distSel);
 
         const el = document.getElementById('degrad-result');
-        if (el) el.innerHTML = renderDegradResult();
+        if (el) {
+            el.innerHTML = renderDegradResult();
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(el, {
+                    delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }]
+                });
+            }
+        }
         setTimeout(drawDegradCharts, 150);
     } else {
         // ADT 분석 모드
@@ -5135,7 +5512,14 @@ function runDegradAnalysis() {
             degradState.adtResult = ADTAnalysis.analyze(data, threshold, direction, useTemp, modelSel);
             
             const el = document.getElementById('degrad-result');
-            if (el) el.innerHTML = renderADTResult();
+            if (el) {
+                el.innerHTML = renderADTResult();
+                if (typeof renderMathInElement === 'function') {
+                    renderMathInElement(el, {
+                        delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }]
+                    });
+                }
+            }
             setTimeout(drawADTCharts, 150);
         } catch(err) {
             alert(err.message);
@@ -5164,6 +5548,9 @@ function renderDegradResult() {
         betaMsg = `<div class="info-box" style="margin-top: 0.5rem; font-size: 0.8rem; border-color: var(--accent-glow); color: var(--accent-color);">${interp.message}</div>`;
     }
 
+    const selModel = document.getElementById('degrad-model-sel')?.value || 'auto';
+    const activeModelObj = r.globalModels.find(m => m.model === selModel) || r.globalModels.find(m => m.best) || r.globalModels[0];
+
     return `
     <div class="grid-4" style="margin-bottom:1rem">
         <div class="stat-card"><div class="label">시료 수</div><div class="value">${s.nUnits}</div></div>
@@ -5180,28 +5567,49 @@ function renderDegradResult() {
     <div class="glass-card" style="margin-bottom:1rem">
         <h3 class="section-title">글로벌 모델 비교 (전체 데이터)</h3>
         <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.5rem">💡 행을 클릭하면 해당 열화 예측 모델로 수명이 즉시 재계산됩니다.</div>
-        <div class="table-wrapper"><table><thead><tr>
-            <th class="table-header">최적</th>
+        <div class="table-wrapper" style="margin-bottom: 1rem;"><table><thead><tr>
+            <th class="table-header">최적 / 선택</th>
             <th class="table-header">모델</th>
             <th class="table-header">절편 (a)</th>
             <th class="table-header">기울기 (b)</th>
             <th class="table-header">지수 (p / c)</th>
             <th class="table-header">결정계수 (R²)</th>
         </tr></thead><tbody>${r.globalModels.map(m => {
-            const bg = m.best ? 'rgba(56,189,248,0.06)' : 'transparent';
+            const isActive = (m.model === selModel) || (selModel === 'auto' && m.best);
+            const bg = isActive ? 'rgba(34,197,94,0.15)' : (m.best ? 'rgba(56,189,248,0.06)' : 'transparent');
+            const hoverBg = isActive ? 'rgba(34,197,94,0.25)' : 'rgba(56,189,248,0.15)';
+            
+            let badgeHtml = '';
+            if (m.best) {
+                badgeHtml += '<span class="badge badge-info" style="margin-right:4px">✓ 최적</span>';
+            }
+            if (isActive) {
+                badgeHtml += '<span class="badge badge-success" style="background-color: var(--success); color: #fff">✓ 선택됨</span>';
+            }
+
             return `<tr onclick="selectDegradModel('${m.model}')" 
                 style="cursor:pointer; background:${bg}; transition: background 0.2s;" 
-                onmouseover="this.style.background='rgba(56,189,248,0.15)'" 
+                onmouseover="this.style.background='${hoverBg}'" 
                 onmouseout="this.style.background='${bg}'"
                 class="hover-row-effect">
-                <td class="table-cell">${m.best?'<span class="badge badge-info">✓ 최적</span>':''}</td>
-                <td class="table-cell" style="color:${dc[m.model]||'var(--text-primary)'};font-weight:${m.best?'700':'400'}">${m.label}</td>
+                <td class="table-cell">${badgeHtml}</td>
+                <td class="table-cell" style="color:${dc[m.model]||'var(--text-primary)'};font-weight:${isActive?'700':'400'}">${m.label}</td>
                 <td class="table-cell">${m.a.toFixed(4)}</td>
                 <td class="table-cell">${m.b.toFixed(6)}</td>
                 <td class="table-cell">${m.c !== undefined ? m.c.toFixed(2) : (m.p !== undefined ? m.p.toFixed(2) : '-')}</td>
                 <td class="table-cell" style="font-weight:600;color:var(--accent-color)">${m.r2.toFixed(6)}</td>
             </tr>`;
         }).join('')}</tbody></table></div>
+
+        <!-- 선택된 모델 수식 표시 패널 -->
+        <div style="padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div style="font-size: 0.8rem; font-weight: 600; color: var(--accent-color); margin-bottom: 0.5rem;">
+                선택된 모델 공식 (${activeModelObj.label})
+            </div>
+            <div id="degrad-selected-formula" style="font-size: 0.95rem; overflow-x: auto; padding: 0.25rem 0;">
+                $$${getModelFormulaLaTeX(activeModelObj.model, activeModelObj.a, activeModelObj.b, activeModelObj.c !== undefined ? activeModelObj.c : activeModelObj.p)}$$
+            </div>
+        </div>
     </div>
     
     <div class="glass-card" style="margin-bottom:1rem">
@@ -5527,15 +5935,15 @@ function drawADTCharts() {
                 {
                     label: '스트레스 조건별 대표 열화속도 (ln|b|)',
                     data: arrhData,
-                    borderColor: 'var(--warning)',
-                    backgroundColor: 'var(--warning)',
+                    borderColor: '#f59e0b',
+                    backgroundColor: '#f59e0b',
                     pointRadius: 6,
                     showLine: false
                 },
                 {
                     label: 'Arrhenius 피팅 선',
                     data: lineData,
-                    borderColor: 'var(--accent-color)',
+                    borderColor: '#38bdf8',
                     borderWidth: 2,
                     showLine: true,
                     pointRadius: 0,
@@ -5584,7 +5992,7 @@ function drawADTCharts() {
                     {
                         label: `F(t) 수명 누적 분포 (Weibull 2P 적합)`,
                         data: dataPoints,
-                        borderColor: 'var(--success)',
+                        borderColor: '#22c55e',
                         backgroundColor: 'rgba(34, 197, 94, 0.08)',
                         fill: true,
                         tension: 0.3,
@@ -5986,7 +6394,7 @@ function openAccReferenceModal(modelType) {
                 <i class="fas fa-bookmark" style="margin-right:0.5rem;color:var(--warning)"></i>1. 표준 가속 파라미터 레퍼런스
             </h4>
             <div class="table-wrapper" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:0.5rem;margin-bottom:1.75rem;overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;text-align:left;min-width:850px">
+                <table class="guide-table">
                     <thead>
                         <tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
                             <th style="padding:0.6rem;color:var(--text-secondary);font-weight:600;width:15%">기호</th>
@@ -6609,10 +7017,19 @@ function runALTAnalysis() {
                 result = ALTAnalysis.fitArrhenius(rawGroups);
             }
 
+            result.stressSpecs = _altStresses;
+
             _altResult = result;
             renderALTSummary(result);
             document.getElementById('alt-charts-panel').style.display = 'block';
-            setTimeout(() => drawALTAnalysisCharts(result), 150);
+            setTimeout(() => {
+                drawALTAnalysisCharts(result);
+                if (typeof renderMathInElement === 'function') {
+                    renderMathInElement(document.getElementById('alt-charts-panel'), {
+                        delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }]
+                    });
+                }
+            }, 150);
 
         } catch (e) {
             summaryEl.innerHTML = `<div class="info-box danger">❌ 분석 오류: ${e.message}</div>`;
@@ -6905,11 +7322,11 @@ function drawALTAnalysisCharts(r) {
     const probCtx = document.getElementById('alt-chart-probability');
     if (probCtx) {
         // 사용 조건 설정에 기반한 사용 수명 계산
-        const useTemp = r.stressSpecs[0].useVal;
+        const useTemp = (r.stressSpecs && r.stressSpecs[0]) ? r.stressSpecs[0].useVal : _altStresses[0].useVal;
         const tUseK = useTemp + 273.15;
         let etaUse = Math.exp(r.a0 + r.stressCoefs[0] / tUseK);
 
-        if (r.model === 'gll') {
+        if (r.model === 'gll' && r.stressSpecs) {
             for (let i = 1; i < r.stressSpecs.length; i++) {
                 const spec = r.stressSpecs[i];
                 const uVal = spec.useVal;

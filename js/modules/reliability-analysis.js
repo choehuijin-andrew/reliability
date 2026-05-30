@@ -392,7 +392,7 @@ const ReliabilityAnalysis = (() => {
     if (fisherCI && fisherCI.covMatrix) {
       cdfCI = Statistics.computeTrueCDFCI(selectedFit.dist, selectedFit.params, fisherCI.covMatrix, xVals, zScore);
     } else {
-      cdfCI = Statistics.waldLogitCI(cdfVals, nTotal, zScore);
+      cdfCI = Statistics.computeSemiparametricLogitCI(cdfVals, failures, censored, xVals, zScore);
     }
 
     // Hazard Rate CI도 Delta Method로 계산

@@ -171,6 +171,106 @@ const Statistics = (() => {
   }
 
   // ─────────────────────────────────────────────
+  // Greenwood 공식을 이용한 비모수적 누적 고장 분산 추정
+  // Ref: Meeker & Escobar (1998), Section 3.9, Eq. 3.16
+  // ─────────────────────────────────────────────
+  function computeGreenwoodVariance(failures, censored, tVals) {
+    const allData = [
+      ...failures.map(t => ({ t, event: 1 })),
+      ...censored.map(t  => ({ t, event: 0 }))
+    ].sort((a, b) => a.t - b.t);
+
+    const n = allData.length;
+    let atRisk = n;
+    
+    const kmPoints = [];
+    let sumGreenwood = 0;
+    let survival = 1.0;
+
+    let i = 0;
+    while (i < allData.length) {
+      const currentT = allData[i].t;
+      let deaths = 0;
+      let cens = 0;
+      
+      while (i < allData.length && allData[i].t === currentT) {
+        if (allData[i].event === 1) deaths++;
+        else cens++;
+        i++;
+      }
+      
+      const currentAtRisk = atRisk;
+      if (deaths > 0 && currentAtRisk > deaths) {
+        sumGreenwood += deaths / (currentAtRisk * (currentAtRisk - deaths));
+        survival *= (1 - deaths / currentAtRisk);
+      }
+      
+      kmPoints.push({
+        t: currentT,
+        sumGreenwood,
+        survival
+      });
+      
+      atRisk -= (deaths + cens);
+    }
+
+    return tVals.map(t => {
+      let activeGreenwood = 0;
+      let activeSurvival = 1.0;
+      
+      for (const pt of kmPoints) {
+        if (pt.t <= t) {
+          activeGreenwood = pt.sumGreenwood;
+          activeSurvival = pt.survival;
+        } else {
+          break;
+        }
+      }
+      
+      // Var(F(t)) = Var(S(t)) = S(t)^2 * sumGreenwood
+      const varF = activeSurvival * activeSurvival * activeGreenwood;
+      return { varF, S: activeSurvival, F: 1 - activeSurvival };
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // 하이브리드 반모수적 Logit-Wald 신뢰구간 (Greenwood 분산 도입)
+  // Fisher 정보 행렬을 활용하지 못할 때 F(t)가 1.0 근처에서 수치 폭발을 일으키지 않도록 방어합니다.
+  // ─────────────────────────────────────────────
+  function computeSemiparametricLogitCI(cdfVals, failures, censored, tVals, zScore) {
+    const greenwood = computeGreenwoodVariance(failures, censored, tVals);
+    const lower = [];
+    const upper = [];
+    const eps = 1e-9;
+    const nTotal = failures.length + censored.length;
+
+    for (let i = 0; i < tVals.length; i++) {
+      const p = cdfVals[i];
+      const pc = Math.max(Math.min(p, 1 - eps), eps);
+      
+      let varP = greenwood[i].varF;
+      // Greenwood 분산이 없거나 0인 경우 이항분포 분산으로 보완
+      if (varP <= 0) {
+        varP = pc * (1 - pc) / nTotal;
+      }
+      
+      const w = Math.log(pc / (1 - pc));
+      const seW = Math.sqrt(varP) / (pc * (1 - pc));
+      
+      const wL = w - zScore * seW;
+      const wU = w + zScore * seW;
+      
+      let lVal = Math.exp(wL) / (1 + Math.exp(wL));
+      let uVal = Math.exp(wU) / (1 + Math.exp(wU));
+      
+      lower.push(isFinite(lVal) ? lVal : 0);
+      upper.push(isFinite(uVal) ? uVal : 1);
+    }
+    
+    return { lower, upper };
+  }
+
+  // ─────────────────────────────────────────────
   // Hazard Rate Log CI (Poisson 근사)
   // Ref: Meeker & Escobar (1998), Section 7.3, Eq. 7.17
   //   se(ln h) ≈ 1/sqrt(n_failures)
@@ -687,6 +787,8 @@ const Statistics = (() => {
     computeTrueCDFCI,
     computeBxLifeCI,
     computeContourPlot,
+    computeGreenwoodVariance,
+    computeSemiparametricLogitCI,
     MIN_SAMPLE_FOR_MLE
   };
 })();
