@@ -59,6 +59,27 @@ const SamplePlanning = {
         return -1; // 수렴 실패
     },
 
+    // AQL 연계용: n, c, beta가 주어질 때 역산되는 보장 LTPD 불량률(%) 구하기 (이분법 수치해석 적용)
+    findLTPDForNC(n, c, beta = 0.10) {
+        if (n <= 0) return 0;
+        if (c >= n) return 100;
+        
+        let low = 0;
+        let high = 1;
+        let mid = 0.5;
+        // 30회 반복으로 충분히 높은 정밀도(소수점 이하 6자리 이상) 확보
+        for (let i = 0; i < 30; i++) {
+            mid = (low + high) / 2;
+            const prob = jStat.binomial.cdf(c, n, mid);
+            if (prob > beta) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        return mid * 100; // % 단위 반환
+    },
+
     // ─── AQL 기반 시료수 (생산자 위험 관점) ───
     // P(X ≤ c | p=AQL) ≥ 1-α 를 만족하는 최대 n
     // Ref: ISO 2859-1, Section 8.3

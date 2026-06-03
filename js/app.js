@@ -1921,6 +1921,16 @@ function runReliabilityPlan() {
             </div>
         </div>
 
+        <div class="accordion" style="margin-top:0.75rem; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.05); border-radius:8px">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+                💡 실무 도슨트 해설 (무고장 보증 수식)
+                <span class="accordion-arrow">▼</span>
+            </div>
+            <div class="accordion-body" style="padding:0.75rem 0.85rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.6">
+                이 식은 신뢰수준 C% 하에서 1개도 고장나지 않는 시험을 마쳐서 목표 신뢰도 R%를 보장하기 위해 필요한 최소 시료수입니다. 신뢰수준이 엄격할수록(예: 95% 또는 99%), 목표 신뢰도가 높을수록(예: 99.9%) 필요한 시료수가 기하급수적으로 증가합니다. 실무에서는 "시료수 N개 투입 후 무고장 통과하면 불량률 10% 이하를 90% 신뢰수준으로 보증한다"는 비즈니스 계약 조건을 설계할 때 핵심적으로 사용됩니다.
+            </div>
+        </div>
+
         <div class="accordion" style="margin-top:0.75rem">
             <div class="accordion-header" onclick="this.parentElement.classList.toggle('open');setTimeout(()=>drawOCChart(${n},${c},${100 - R},${1 - C/100}),100)">
                 OC Curve (부하 특성 곡선)
@@ -2029,6 +2039,16 @@ function runLTPD() {
                     </button>
                 </div>
                 <div id="ltpd-formula-section" class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+            </div>
+        </div>
+
+        <div class="accordion" style="margin-top:0.75rem; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.05); border-radius:8px">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+                💡 실무 도슨트 해설 (LTPD 수식)
+                <span class="accordion-arrow">▼</span>
+            </div>
+            <div class="accordion-body" style="padding:0.75rem 0.85rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.6">
+                이 식은 불량률이 p인 최악의 상태(LTPD)의 제품군을 투입했을 때, 우연히 검사를 통과하여 합격될 확률이 소비자 위험 수준 β 이하가 되도록 통제하는 이항분포 누적함수 식입니다. 실무적으로 소비자 위험 β는 보통 10%로 고정하며, 이 식은 불량 제품이 소비자에게 유출될 확률을 10% 미만으로 틀어막는 가장 견고한 검사 수량을 결정하는 표준 공식입니다.
             </div>
         </div>
 
@@ -2160,6 +2180,16 @@ function runWeibullBx() {
                     </button>
                 </div>
                 <div id="wbx-formula-section" class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
+            </div>
+        </div>
+
+        <div class="accordion" style="margin-top:0.75rem; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.05); border-radius:8px">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+                💡 실무 도슨트 해설 (Weibull Bx 수식)
+                <span class="accordion-arrow">▼</span>
+            </div>
+            <div class="accordion-body" style="padding:0.75rem 0.85rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.6">
+                제품의 수명 분포가 Weibull 분포(형상모수 β, 척도모수 η)를 따를 때, 특정 수명 시점(B_x)을 보증하기 위해 얼마 동안 몇 개의 샘플로 시험을 지속해야 하는지를 카이제곱 분포와 연계해 계산하는 식입니다. 시험 시간(t_test)이 길어질수록 요구 시료수는 단축되는 관계에 있으며, 형상모수 β가 클수록(마모가 급격히 진행되는 제품군일수록) 시료수 절감 속도가 매우 빨라집니다.
             </div>
         </div>
 
@@ -2342,6 +2372,16 @@ function runLTFR() {
                 <div class="formula-section" style="border:none;padding:0;background:none">${formula}</div>
             </div>
         </div>
+
+        <div class="accordion" style="margin-top:0.75rem; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.05); border-radius:8px">
+            <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+                💡 실무 도슨트 해설 (LTFR 수식)
+                <span class="accordion-arrow">▼</span>
+            </div>
+            <div class="accordion-body" style="padding:0.75rem 0.85rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.6">
+                지수분포(시간당 고장률이 일정한 제품) 가정 하에, 목표하는 고장률(λ) 수준을 통계적으로 보증하기 위해 필요한 총 시험 시간의 합(시료 수 × 개별 시험 시간)을 구하는 식입니다. 카이제곱 분포를 적용해 고장수(c) 증가에 따른 리스크 변동을 보정합니다. 고장 허용수가 커질수록 신뢰 보증을 위해 요구되는 총 시험 누적 시간이 선형적으로 대폭 증가합니다.
+            </div>
+        </div>
     `;
 }
 function renderAQLTab() {
@@ -2433,9 +2473,12 @@ function runAQL() {
                 </div>
             </div>
             ${plan.arrowDir ? `<div class="info-box warning" style="margin-top:1rem;font-size:0.85rem">⚠️ 직접 계획이 없어 화살표(${plan.arrowDir === 'D' ? '↓' : '↑'})를 따라 코드 <strong>${plan.usedCode}</strong>의 샘플링이 채택되었습니다.</div>` : ''}
-            <div style="margin-top:1rem; font-size:0.85rem; color:var(--text-secondary)">
-                로트 크기: <strong>${range}</strong> → 코드: <strong>${letter}</strong> <span style="margin:0 0.5rem">|</span> 검사 유형: ${type}
+            <div style="margin-top:1rem; font-size:0.85rem; color:var(--text-secondary); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem">
+                <span>로트 크기: <strong>${range}</strong> → 코드: <strong>${letter}</strong> <span style="margin:0 0.5rem">|</span> 검사 유형: ${type}</span>
             </div>
+            <button class="btn btn-secondary" style="width:100%; margin-top:0.85rem; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:0.35rem; padding:0.5rem;" onclick="linkAQLToLTPD(${plan.n}, ${plan.ac})">
+                <span>통계적 신뢰성 검증하기 (LTPD 연계) 🔗</span>
+            </button>
         `;
 
         // Generate Table 1 HTML
@@ -3797,6 +3840,62 @@ function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targe
         }
     }
 
+    // 피처 C: 실시간 슬라이더 마크업 생성
+    let sliderHtml = '';
+    if (goal === 'test_time') {
+        sliderHtml = `
+        <div class="glass-card-sm" style="margin-top:1rem; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem">
+                <span style="font-size:0.85rem; font-weight:600; color:var(--accent-color)">실시간 시료수 조절 슬라이더 (트레이드오프 조정)</span>
+                <span style="font-size:0.85rem; color:var(--text-secondary)"><strong id="slider-n-val" style="color:var(--text-primary); font-size:1rem">${n}</strong> 개</span>
+            </div>
+            <input type="range" id="acc-n-slider" min="1" max="100" value="${n}" style="width:100%; accent-color:var(--accent-color); cursor:pointer;" oninput="updateAccSlider(this.value)">
+            <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); margin-top:0.25rem">
+                <span>시료 1개</span>
+                <span>시료 100개</span>
+            </div>
+        </div>`;
+    }
+
+    // 피처 E: 요약 텍스트 생성
+    let finalResultVal = 0;
+    if (goal === 'test_time') {
+        const tTest = (1 / af) * Math.pow((chi2 * Math.pow(etaUseReq, beta)) / (2 * Math.max(n, 1)), 1 / beta);
+        finalResultVal = Math.max(1, Math.round(tTest));
+    } else if (goal === 'sample_size') {
+        const num = chi2 * Math.pow(etaUseReq, beta);
+        const den = 2 * Math.pow(tTestUser * af, beta);
+        finalResultVal = Math.ceil(num / den);
+    } else if (goal === 'life') {
+        finalResultVal = af * tTestUser * Math.pow(-Math.log(1 - bxFraction), 1/beta) / Math.pow(chi2/(2 * Math.max(n, 1)), 1/beta);
+    }
+    const summaryText = Acceleration.generateSummaryText(model, af, beta, n, targetLife, conf/100, bx, goal, tTestUser, finalResultVal);
+
+    const summaryHtml = `
+    <div class="glass-card-sm" style="margin-top: 1.25rem; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.15); padding: 0.85rem; border-radius: 8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem">
+            <span style="font-size:0.85rem; font-weight:600; color:var(--accent-color)">📝 보고서용 비즈니스 요약문</span>
+            <button class="btn btn-sm btn-secondary" onclick="copySummaryTextToClipboard()" style="padding: 2px 8px; font-size:0.75rem; height:24px; line-height:1">복사하기</button>
+        </div>
+        <p id="acc-business-summary" style="font-size: 0.83rem; line-height: 1.5; color: var(--text-primary); margin:0; word-break: keep-all;">
+            ${summaryText}
+        </p>
+    </div>`;
+
+    // 피처 D: 수식 도슨트 아코디언 마크업
+    const docentHtml = `
+    <div class="accordion" style="margin-top:0.75rem; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.05); border-radius:8px">
+        <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')" style="padding:0.6rem 0.85rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; cursor:pointer">
+            <span>💡 실무 도슨트 해설 (가속 시험 & 신뢰성 수식)</span>
+            <span class="accordion-arrow">▼</span>
+        </div>
+        <div class="accordion-body" style="padding:0.75rem 0.85rem; font-size:0.8rem; color:var(--text-secondary); line-height:1.6">
+            <p style="margin: 0 0 0.5rem 0;"><strong>1. 가속 계수 (AF) 공식의 의미:</strong> 온도가 올라감에 따라 노화 속도가 기하급수적으로 증가하는 아레니우스 열역학 법칙을 따릅니다. 활성화 에너지(Ea)가 높을수록 수명 가속도(AF)가 급상승하여 가속 시험 일정을 극적으로 줄일 수 있습니다. 반도체 소자 마모는 표준 0.7 eV를 기준으로 삼습니다.</p>
+            <p style="margin: 0 0 0.5rem 0;"><strong>2. 필요 시험 시간(t_test) 공식의 의미:</strong> 신뢰수준 C% 하에서 목표 수명(B_x)을 보증하기 위해 필요한 시험 시간을 계산합니다. 시료 수(n)를 많이 투입할수록 시험 시간이 단축되는 반비례 관계에 있으며, 형상모수 β가 클수록(마모가 집중되는 특성일수록) 시료 증량에 따른 시간 절감 효과가 커집니다.</p>
+            <p style="margin: 0;"><strong>3. 척도모수 (η_use) & 보증 수명 계산:</strong> 카이제곱 신뢰성 역산 기법을 통해 실제 시험 시간과 시료 수 조건이 최종적으로 보증하는 부품 고유의 수명(B_x)을 계산합니다. 단 1대도 고장나지 않아야(c=0) 해당 B_x 수명을 수학적으로 완벽히 신뢰수준 C% 하에 보증할 수 있습니다.</p>
+        </div>
+    </div>`;
+
     // 결과 HTML 생성 및 #acc-result에 삽입
     const el = document.getElementById('acc-result');
     if (!el) return;
@@ -3815,6 +3914,10 @@ function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targe
             <div class="value" style="font-size:1.4rem;color:${r.color || 'var(--accent-color)'}">${r.value}</div>
         </div>`).join('')}
     </div>
+
+    ${sliderHtml}
+
+    ${summaryHtml}
 
     ${verificationHtml}
 
@@ -3840,6 +3943,7 @@ function renderAccResult(af, modelLabel, formulaResult, tradeoff, beta, n, targe
                 </div>
             </div>
             <div id="acc-formula-section" class="formula-section" style="border:none; padding:0; background:none">${formulaResult.steps}</div>
+            ${docentHtml}
         </div>` : ''}
     </div>`;
 
@@ -6179,6 +6283,51 @@ function applyAccPreset(modelType, value) {
     
     // 계산 즉시 갱신
     try { runAcceleration(); } catch(e) {}
+}
+
+function linkAQLToLTPD(n, c) {
+    // 1. planning 탭으로 전환
+    switchTab('planning');
+    // 2. ltpd 서브탭으로 전환
+    switchPlanningSubTab('ltpd');
+    
+    // 3. 소비자위험 10% 하에서 보장되는 실제 LTPD 불량률(%) 역산
+    const ltpdVal = SamplePlanning.findLTPDForNC(n, c, 0.10);
+    
+    // 4. DOM 입력 필드 동기화 (DOM 생성 대기 위해 setTimeout 적용)
+    setTimeout(() => {
+        const pInput = document.getElementById('ltpd-p');
+        const betaInput = document.getElementById('ltpd-beta');
+        const cInput = document.getElementById('ltpd-c');
+        
+        if (pInput) pInput.value = ltpdVal.toFixed(2);
+        if (betaInput) betaInput.value = 10; // 소비자위험 10% 고정
+        if (cInput) cInput.value = c;
+        
+        // 5. 즉시 계산 실행
+        runLTPD();
+    }, 80);
+}
+
+function updateAccSlider(val) {
+    const nInput = document.getElementById('acc-n');
+    if (nInput) nInput.value = val;
+    accelerationState.n = parseInt(val);
+    const sliderValEl = document.getElementById('slider-n-val');
+    if (sliderValEl) sliderValEl.innerText = val;
+    
+    // 계산 즉시 갱신
+    runAcceleration();
+}
+
+function copySummaryTextToClipboard() {
+    const text = document.getElementById('acc-business-summary')?.innerText;
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        showCopyToast('비즈니스 요약문이 클립보드에 복사되었습니다.');
+    }).catch(err => {
+        console.error('복사 실패:', err);
+    });
 }
 
 function copyFormulaText(selector) {

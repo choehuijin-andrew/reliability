@@ -438,5 +438,30 @@ const Acceleration = {
                 setInputsFunc: "applyVerificationInputs('norris_landzberg', { 'acc-dt-use': 20, 'acc-dt-stress': 100, 'acc-m': 1.9, 'acc-nl-rampup-use': 360, 'acc-nl-dwellhigh-use': 360, 'acc-nl-rampdown-use': 360, 'acc-nl-dwelllow-use': 360, 'acc-nl-rampup-stress': 30, 'acc-nl-dwellhigh-stress': 30, 'acc-nl-rampdown-stress': 30, 'acc-nl-dwelllow-stress': 30, 'acc-nl-tmax-use': 50, 'acc-nl-tmax-stress': 125, 'acc-nl-ea': 0.123 })"
             }
         }
+    },
+    
+    // ─── 보고서용 비즈니스 요약문 자동 생성 (피처 E) ───
+    generateSummaryText(model, af, beta, n, targetLife, confidence, targetBx, goal, tTestUser, resultVal) {
+        const C_pct = (confidence * 100).toFixed(0);
+        let modelLabel = "";
+        if (model === 'arrhenius') modelLabel = "Arrhenius (온도)";
+        else if (model === 'peck') modelLabel = "Peck (온도+습도)";
+        else if (model === 'coffin_manson') modelLabel = "Coffin-Manson (열사이클)";
+        else if (model === 'inverse_power') modelLabel = "역거듭제곱(IPL)";
+        else if (model === 'eyring') modelLabel = "Eyring";
+        else if (model === 'norris_landzberg') modelLabel = "Norris-Landzberg";
+        else if (model === 'arrhenius_power') modelLabel = "복합(Arrhenius x IPL)";
+
+        if (!goal || goal === 'test_time') {
+            const finalTime = Math.max(1, Math.round(resultVal));
+            return `본 제품의 목표인 B${targetBx} 수명 ${Math.round(targetLife).toLocaleString()}시간을 신뢰수준 ${C_pct}% 하에서 가속 검증하기 위해, ${modelLabel} 가속계수 ${af.toFixed(1)}배를 적용하여 시료 ${n}개 조건에서 최소 **${finalTime.toLocaleString()}시간** 동안 단 1대의 고장도 없어야 합격으로 판정됩니다. 만약 시험 일정을 단축하기 위해 시험시간을 변경하려면 시료수 슬라이더를 조정하십시오.`;
+        } else if (goal === 'sample_size') {
+            const finalN = Math.ceil(resultVal);
+            return `본 제품의 목표인 B${targetBx} 수명 ${Math.round(targetLife).toLocaleString()}시간을 신뢰수준 ${C_pct}% 하에서 가속 검증하기 위해, ${modelLabel} 가속계수 ${af.toFixed(1)}배를 적용하여 가속 시험시간 ${tTestUser.toLocaleString()}시간 조건에서 최소 **${finalN}개**의 시료가 필요하며, 단 1대의 고장도 없어야 합격으로 판정됩니다.`;
+        } else if (goal === 'life') {
+            const finalLife = Math.round(resultVal);
+            return `본 제품은 신뢰수준 ${C_pct}% 하에서 가속계수 ${af.toFixed(1)}배를 적용하여 시료 ${n}개로 ${tTestUser.toLocaleString()}시간 동안 무고장 시험을 완료했을 때, 보증 가능한 B${targetBx} 수명은 최대 **${finalLife.toLocaleString()}시간**으로 판정됩니다.`;
+        }
+        return "";
     }
 };
